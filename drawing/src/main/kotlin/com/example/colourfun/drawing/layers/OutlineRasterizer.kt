@@ -23,6 +23,9 @@ import com.example.colourfun.generator.geometry.PathShape
 object OutlineRasterizer {
 
     fun rasterize(lineArt: LineArt, size: DocumentSize): Bitmap {
+        require(lineArt.width.toLong() * size.height == lineArt.height.toLong() * size.width) {
+            "Line art ${lineArt.width}×${lineArt.height} does not match the document aspect ratio"
+        }
         val bitmap = createBitmap(size.width, size.height, Bitmap.Config.ALPHA_8)
         val canvas = Canvas(bitmap)
         val scale = size.width / lineArt.width.toFloat()
