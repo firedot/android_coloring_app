@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
@@ -52,8 +53,9 @@ class GestureArbitrationTest {
     }
     private val viewport = MutableStateFlow<Viewport?>(null)
     private var tapped: Offset? = null
+    private var dismissals = 0
 
-    private fun show(tool: Tool = Tool.Pen) = compose.setContent {
+    private fun show(tool: Tool = Tool.Default, panelOpen: Boolean = false) = compose.setContent {
         DrawingSurface(
             engine = engine,
             viewport = viewport,
@@ -64,6 +66,8 @@ class GestureArbitrationTest {
             onViewSize = { w, h -> viewport.value = Viewport.of(size.width, size.height, w, h) },
             onTransform = { factor, focus, pan -> viewport.update { it?.transform(factor, focus.x, focus.y, pan.x, pan.y) } },
             modifier = Modifier.size(400.dp, 300.dp).testTag(CANVAS),
+            panelOpen = panelOpen,
+            onDismissPanels = { dismissals++ },
         )
     }
 
@@ -178,6 +182,31 @@ class GestureArbitrationTest {
             up(1)
         }
 
+        assertNull(tapped)
+    }
+
+    @Test
+    fun `with a panel open a stroke only closes it`() {
+        show(panelOpen = true)
+
+        compose.onNodeWithTag(CANVAS).performTouchInput {
+            down(0, center)
+            repeat(10) { moveBy(0, Offset(10f, 4f)) }
+            up(0)
+        }
+
+        assertEquals(1, dismissals)
+        assertFalse(engine.canUndo.value)
+        assertFalse(hasPaint())
+    }
+
+    @Test
+    fun `with a panel open a fill tap only closes it`() {
+        show(Tool.Fill, panelOpen = true)
+
+        compose.onNodeWithTag(CANVAS).performTouchInput { click(center) }
+
+        assertEquals(1, dismissals)
         assertNull(tapped)
     }
 

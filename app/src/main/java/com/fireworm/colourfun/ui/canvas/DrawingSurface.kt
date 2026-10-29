@@ -41,6 +41,8 @@ internal val ShortStrokeTravel = 24.dp
 /**
  * Shows the engine's document through [viewport] and feeds touches straight into the engine.
  *
+ * - While a panel is open ([panelOpen]), a touch only closes it through [onDismissPanels]; nothing
+ *   is painted for the rest of that gesture.
  * - One finger uses the current tool. A drawing tool or the eraser strokes; fill and pipette report
  *   the touch-down position to [onTap] when the finger lifts, so the first finger of a pinch never
  *   fills.
@@ -67,6 +69,8 @@ fun DrawingSurface(
     onViewSize: (width: Float, height: Float) -> Unit,
     onTransform: (factor: Float, focus: Offset, pan: Offset) -> Unit,
     modifier: Modifier = Modifier,
+    panelOpen: Boolean = false,
+    onDismissPanels: () -> Unit = {},
     onActiveChange: (Boolean) -> Unit = {},
     onFrameDrawn: (dirtyFraction: Float) -> Unit = {},
 ) {
@@ -80,6 +84,8 @@ fun DrawingSurface(
     val currentOnTap by rememberUpdatedState(onTap)
     val currentOnTransform by rememberUpdatedState(onTransform)
     val currentOnActiveChange by rememberUpdatedState(onActiveChange)
+    val currentPanelOpen by rememberUpdatedState(panelOpen)
+    val currentOnDismissPanels by rememberUpdatedState(onDismissPanels)
     val documentSize = engine.document.size
     val documentPixels = documentSize.width.toFloat() * documentSize.height
     var strokeActive by remember { mutableStateOf(false) }
@@ -95,6 +101,15 @@ fun DrawingSurface(
         awaitEachGesture {
             val down = awaitFirstDown()
             down.consume()
+            if (currentPanelOpen) {
+                currentOnDismissPanels()
+                // Swallow the rest of this gesture, whatever the fingers do.
+                do {
+                    val event = awaitPointerEvent()
+                    event.changes.forEach { it.consume() }
+                } while (event.changes.any { it.pressed })
+                return@awaitEachGesture
+            }
             val view = currentViewport.value ?: return@awaitEachGesture
             val spec = currentTool.strokeSpec
             var mode = if (spec == null) GestureMode.Tap else GestureMode.Draw

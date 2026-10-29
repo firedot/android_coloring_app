@@ -34,7 +34,8 @@ fun ColourFunNavHost() {
             ),
         ) {
             ColoringScreen(
-                onOpenGallery = { navController.navigate(GALLERY) { launchSingleTop = true } },
+                // Until the picture library exists, home opens the saved pictures.
+                onHome = { navController.navigate(GALLERY) { launchSingleTop = true } },
                 onOpenSettings = { navController.navigate(SETTINGS) { launchSingleTop = true } },
             )
         }

@@ -3,6 +3,7 @@ package com.fireworm.colourfun.ui.canvas
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
@@ -12,16 +13,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.SnackbarHost
@@ -51,20 +47,23 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fireworm.colourfun.R
 import com.fireworm.colourfun.debug.rememberFrameTimeLogger
 import com.fireworm.colourfun.drawing.DrawingEngine
+import com.fireworm.colourfun.ui.controls.ActionButtonSize
+import com.fireworm.colourfun.ui.controls.ControlButtonSize
 import com.fireworm.colourfun.ui.controls.FitButton
+import com.fireworm.colourfun.ui.controls.HomeButton
+import com.fireworm.colourfun.ui.controls.PaletteControl
+import com.fireworm.colourfun.ui.controls.PaletteRingMinHeight
+import com.fireworm.colourfun.ui.controls.ToolsControl
+import com.fireworm.colourfun.ui.controls.UndoRedoButtons
 import com.fireworm.colourfun.ui.feedback.Sound
 import com.fireworm.colourfun.ui.feedback.rememberFeedback
 import com.fireworm.colourfun.ui.gate.ParentGateDialog
-import com.fireworm.colourfun.ui.palette.SpectrumPalette
-import com.fireworm.colourfun.ui.tools.SizePicker
-import com.fireworm.colourfun.ui.tools.ToolBar
 
 private val Letterbox = Color(0xFFE8E8E8)
-private val EdgePadding = 8.dp
-private val HistoryButtonSize = 56.dp
+private val EdgePadding = 12.dp
 
 @Composable
-fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewModel: CanvasViewModel = hiltViewModel()) {
+fun ColoringScreen(onHome: () -> Unit, onOpenSettings: () -> Unit, viewModel: CanvasViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val engine by viewModel.engine.collectAsStateWithLifecycle()
     val frameTimeLogger = rememberFrameTimeLogger()
@@ -76,6 +75,8 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
 
     // Leaving the screen or the app: save without waiting for the autosave delay.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { onEvent(ColoringEvent.Save) }
+    // Back closes an open panel before it leaves the screen.
+    BackHandler(enabled = uiState.openPanel != null) { onEvent(ColoringEvent.ClosePanels) }
 
     val snackbar = remember { SnackbarHostState() }
     val exportDone = stringResource(R.string.export_done)
@@ -110,47 +111,6 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
             onDismiss = { gate = null },
         )
     }
-    val parentButtons = @Composable {
-        ParentButton(R.drawable.ic_download, R.string.export) {
-            feedback(Sound.Tap)
-            gate = GateTarget.Export
-        }
-        ParentButton(R.drawable.ic_settings, R.string.settings) {
-            feedback(Sound.Tap)
-            gate = GateTarget.Settings
-        }
-    }
-
-    val palette = @Composable { vertical: Boolean, modifier: Modifier ->
-        SpectrumPalette(
-            selected = uiState.color,
-            onSelect = { onEvent(ColoringEvent.SelectColor(it)) },
-            vertical = vertical,
-            modifier = modifier,
-        )
-    }
-    val tools = @Composable { vertical: Boolean ->
-        ToolBar(
-            tool = uiState.tool,
-            size = uiState.size,
-            onSelectTool = { onEvent(ColoringEvent.SelectTool(it)) },
-            vertical = vertical,
-        )
-    }
-    val sizes = @Composable {
-        SizePicker(
-            size = uiState.size,
-            color = uiState.color,
-            enabled = uiState.tool.strokeSpec != null,
-            onSelect = { onEvent(ColoringEvent.SelectSize(it)) },
-        )
-    }
-    val gallery = @Composable { modifier: Modifier ->
-        GalleryButton(modifier) {
-            feedback(Sound.Tap)
-            onOpenGallery()
-        }
-    }
 
     // The canvas fills the whole screen, under the system bars and cutouts; the controls float on
     // top, inset by the safe area. Letterboxed screens show the backdrop around the document.
@@ -168,6 +128,8 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
                     onViewSize = viewModel::onViewSize,
                     onTransform = { factor, focus, pan -> viewModel.transformViewport(factor, focus.x, focus.y, pan.x, pan.y) },
                     modifier = Modifier.fillMaxSize().semantics { contentDescription = canvasDescription },
+                    panelOpen = uiState.openPanel != null,
+                    onDismissPanels = { onEvent(ColoringEvent.ClosePanels) },
                     // Measures frame time (texture upload) while drawing and while zooming.
                     onActiveChange = { active -> frameTimeLogger?.setActive(active) },
                     onFrameDrawn = { dirty -> frameTimeLogger?.onFrameDrawn(dirty) },
@@ -175,70 +137,91 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
             }
             if (uiState.loading) CircularProgressIndicator(Modifier.align(Alignment.Center).size(64.dp))
 
-            BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
-                if (maxWidth >= maxHeight) {
-                    Row(Modifier.fillMaxSize()) {
-                        Column(
-                            modifier = Modifier.fillMaxHeight().padding(EdgePadding),
-                            verticalArrangement = Arrangement.spacedBy(EdgePadding),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            gallery(Modifier.size(width = 120.dp, height = HistoryButtonSize))
-                            palette(true, Modifier.weight(1f))
-                            Row(horizontalArrangement = Arrangement.spacedBy(EdgePadding)) {
-                                HistoryButtons(uiState, onEvent)
-                            }
-                        }
-                        Spacer(Modifier.weight(1f))
-                        Column(
-                            modifier = Modifier.fillMaxHeight().padding(EdgePadding),
-                            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            tools(true)
-                            sizes()
-                            Row(horizontalArrangement = Arrangement.spacedBy(EdgePadding)) { parentButtons() }
-                        }
+            ColoringControls(
+                uiState = uiState,
+                onEvent = onEvent,
+                onHome = {
+                    feedback(Sound.Tap)
+                    onHome()
+                },
+                parentButtons = {
+                    ParentButton(R.drawable.ic_download, R.string.export) {
+                        feedback(Sound.Tap)
+                        gate = GateTarget.Export
                     }
-                } else {
-                    // Only reachable where the system ignores the landscape lock (large screens, Android 16+).
-                    Column(Modifier.fillMaxSize()) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(EdgePadding),
-                            verticalArrangement = Arrangement.spacedBy(EdgePadding),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            tools(false)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(EdgePadding),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                sizes()
-                                Spacer(Modifier.weight(1f))
-                                HistoryButtons(uiState, onEvent)
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(EdgePadding),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                gallery(Modifier.size(width = 72.dp, height = HistoryButtonSize))
-                                Spacer(Modifier.weight(1f))
-                                parentButtons()
-                            }
-                        }
-                        Spacer(Modifier.weight(1f))
-                        palette(false, Modifier.fillMaxWidth().padding(EdgePadding))
+                    ParentButton(R.drawable.ic_settings, R.string.settings) {
+                        feedback(Sound.Tap)
+                        gate = GateTarget.Settings
                     }
-                }
-            }
-            FitButton(
-                visible = uiState.zoomedIn,
-                onClick = { onEvent(ColoringEvent.FitToScreen) },
-                modifier = Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(EdgePadding),
+                },
+                modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(EdgePadding),
             )
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).safeDrawingPadding())
+        }
+    }
+}
+
+/**
+ * The floating controls: home (plus the small grown-up buttons) top-start, undo/redo top-end, the
+ * palette bottom-start, the tools bottom-end with the Fit button above them while zoomed in.
+ */
+@Composable
+internal fun ColoringControls(
+    uiState: ColoringUiState,
+    onEvent: (ColoringEvent) -> Unit,
+    onHome: () -> Unit,
+    modifier: Modifier = Modifier,
+    parentButtons: @Composable () -> Unit = {},
+) {
+    BoxWithConstraints(modifier) {
+        // A ring needs a tall screen (tablets); phones get the wheel as a 4 × 3 grid.
+        val ring = maxHeight - ControlButtonSize - ActionButtonSize - EdgePadding * 2 >= PaletteRingMinHeight
+
+        Row(
+            modifier = Modifier.align(Alignment.TopStart),
+            horizontalArrangement = Arrangement.spacedBy(EdgePadding),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            HomeButton(onHome)
+            parentButtons()
+        }
+        UndoRedoButtons(
+            canUndo = uiState.canUndo,
+            canRedo = uiState.canRedo,
+            onUndo = { onEvent(ColoringEvent.Undo) },
+            onRedo = { onEvent(ColoringEvent.Redo) },
+            modifier = Modifier.align(Alignment.TopEnd),
+        )
+        PaletteControl(
+            color = uiState.color,
+            pipetteActive = uiState.tool == Tool.Pipette,
+            expanded = uiState.openPanel == Panel.Palette,
+            ring = ring,
+            onToggle = { onEvent(ColoringEvent.TogglePanel(Panel.Palette)) },
+            onSelectColor = { onEvent(ColoringEvent.SelectColor(it)) },
+            onSelectPipette = { onEvent(ColoringEvent.SelectTool(Tool.Pipette)) },
+            modifier = Modifier.align(Alignment.BottomStart),
+        )
+        Column(
+            modifier = Modifier.align(Alignment.BottomEnd),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(EdgePadding),
+        ) {
+            FitButton(
+                visible = uiState.zoomedIn && uiState.openPanel == null,
+                onClick = { onEvent(ColoringEvent.FitToScreen) },
+                // Centred over the tools button.
+                modifier = Modifier.padding(end = (ControlButtonSize - 64.dp) / 2),
+            )
+            ToolsControl(
+                tool = uiState.tool,
+                size = uiState.size,
+                color = uiState.color,
+                expanded = uiState.openPanel == Panel.Tools,
+                onToggle = { onEvent(ColoringEvent.TogglePanel(Panel.Tools)) },
+                onSelectTool = { onEvent(ColoringEvent.SelectTool(it)) },
+                onSelectSize = { onEvent(ColoringEvent.SelectSize(it)) },
+            )
         }
     }
 }
@@ -246,7 +229,8 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
 /** The sound for a child's action, or `null` for events that are not taps. */
 private fun soundFor(event: ColoringEvent, tool: Tool): Sound? = when (event) {
     is ColoringEvent.SelectTool, is ColoringEvent.SelectSize, ColoringEvent.Undo, ColoringEvent.Redo, ColoringEvent.FitToScreen -> Sound.Tap
-    is ColoringEvent.SelectColor -> Sound.Tick
+    // Soft sounds for opening and closing a panel and picking a colour.
+    is ColoringEvent.TogglePanel, ColoringEvent.ClosePanels, is ColoringEvent.SelectColor -> Sound.Tick
     is ColoringEvent.TapAt -> if (tool == Tool.Fill) Sound.Fill else Sound.Tap
     ColoringEvent.ToggleStayInsideLines, ColoringEvent.Save, ColoringEvent.ExportToGallery -> null
 }
@@ -259,32 +243,5 @@ private enum class GateTarget { Settings, Export }
 private fun ParentButton(@DrawableRes icon: Int, @StringRes label: Int, onClick: () -> Unit) {
     IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
         Icon(painterResource(icon), contentDescription = stringResource(label), tint = Color.Gray)
-    }
-}
-
-/** Opens the saved pictures. */
-@Composable
-private fun GalleryButton(modifier: Modifier, onClick: () -> Unit) {
-    FilledTonalIconButton(onClick = onClick, modifier = modifier, shape = CircleShape) {
-        Icon(painterResource(R.drawable.ic_gallery), contentDescription = stringResource(R.string.gallery), modifier = Modifier.size(28.dp))
-    }
-}
-
-/** Undo and redo; emitted into the caller's row. */
-@Composable
-private fun HistoryButtons(uiState: ColoringUiState, onEvent: (ColoringEvent) -> Unit) {
-    ControlButton(R.drawable.ic_undo, R.string.undo, enabled = uiState.canUndo) { onEvent(ColoringEvent.Undo) }
-    ControlButton(R.drawable.ic_redo, R.string.redo, enabled = uiState.canRedo) { onEvent(ColoringEvent.Redo) }
-}
-
-@Composable
-private fun ControlButton(
-    @DrawableRes icon: Int,
-    @StringRes label: Int,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    FilledTonalIconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(HistoryButtonSize)) {
-        Icon(painterResource(icon), contentDescription = stringResource(label), modifier = Modifier.size(28.dp))
     }
 }

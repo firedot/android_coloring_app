@@ -23,7 +23,7 @@ import com.fireworm.colourfun.drawing.document.Document
 import com.fireworm.colourfun.drawing.history.History
 import com.fireworm.colourfun.drawing.regions.RegionMaskCache
 import com.fireworm.colourfun.drawing.viewport.Viewport
-import com.fireworm.colourfun.ui.palette.DefaultColor
+import com.fireworm.colourfun.ui.theme.Palette
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.UUID
 import javax.inject.Inject
@@ -59,7 +59,7 @@ sealed interface Tool {
     data class Erase(val size: BrushSize) : Tool
 
     companion object {
-        val Pen = Draw(BrushSpec(Medium.Pen, BrushSize.Medium))
+        val Default = Draw(BrushSpec(Medium.Pencil, BrushSize.Medium))
     }
 }
 
@@ -92,10 +92,13 @@ internal fun decodeTool(text: String): Tool? {
     }.getOrNull()
 }
 
+/** The floating controls that open a panel; only one is open at a time. */
+enum class Panel { Palette, Tools }
+
 data class ColoringUiState(
     val loading: Boolean = true,
-    val tool: Tool = Tool.Pen,
-    val color: Int = DefaultColor,
+    val tool: Tool = Tool.Default,
+    val color: Int = Palette.Default.argb,
     /** Size for the drawing mediums; kept when switching between them. */
     val size: BrushSize = BrushSize.Medium,
     val stayInsideLines: Boolean = true,
@@ -103,9 +106,16 @@ data class ColoringUiState(
     val canRedo: Boolean = false,
     /** Shows the Fit button. */
     val zoomedIn: Boolean = false,
+    val openPanel: Panel? = null,
 )
 
 sealed interface ColoringEvent {
+    /** Opens [panel], closing any other; closes it if it is already open. */
+    data class TogglePanel(val panel: Panel) : ColoringEvent
+
+    /** The canvas or the back button was used while a panel was open. */
+    data object ClosePanels : ColoringEvent
+
     /** Selecting [Tool.Pipette] while it is already active returns to the previous tool. */
     data class SelectTool(val tool: Tool) : ColoringEvent
     data class SelectColor(val color: Int) : ColoringEvent
@@ -125,6 +135,16 @@ sealed interface ColoringEvent {
 
     /** Save the picture to the device's photos. Only sent after the parent gate (and permission on 26–28). */
     data object ExportToGallery : ColoringEvent
+}
+
+/**
+ * The open panel after [event]. Choosing anything in a panel, or using another control, collapses
+ * it; only saving and taps that reach the canvas leave it as it is.
+ */
+internal fun Panel?.after(event: ColoringEvent): Panel? = when (event) {
+    is ColoringEvent.TogglePanel -> if (this == event.panel) null else event.panel
+    is ColoringEvent.TapAt, ColoringEvent.Save, ColoringEvent.ExportToGallery, ColoringEvent.ToggleStayInsideLines -> this
+    else -> null
 }
 
 /** One-off results for the screen to show. */
@@ -191,7 +211,7 @@ class CanvasViewModel @Inject constructor(
     private var savedEdits = 0L
 
     /** Where [Tool.Pipette] returns to. */
-    private var toolBeforePipette: Tool = Tool.Pen
+    private var toolBeforePipette: Tool = Tool.Default
 
     init {
         viewModelScope.launch {
@@ -226,7 +246,9 @@ class CanvasViewModel @Inject constructor(
     }
 
     fun onEvent(event: ColoringEvent) {
+        _uiState.update { it.copy(openPanel = it.openPanel.after(event)) }
         when (event) {
+            is ColoringEvent.TogglePanel, ColoringEvent.ClosePanels -> Unit
             is ColoringEvent.SelectTool -> selectTool(event.tool)
             is ColoringEvent.SelectColor -> _uiState.update {
                 // Choosing a palette colour also ends picking one from the picture.
