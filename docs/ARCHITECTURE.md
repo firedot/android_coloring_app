@@ -1,69 +1,61 @@
 # Colour Fun — Architecture
 
 This document turns the goals in [README.md](../README.md) into a concrete technical design.
-It covers module layout, the drawing engine, the animal generator, persistence, UI state and
+It covers module layout, the drawing engine, the picture library, persistence, UI state and
 testing. Decisions that diverge from or refine the README are marked **(refines README)**.
+
+Picture authoring rules live in [PICTURE_GUIDELINES.md](PICTURE_GUIDELINES.md).
 
 ---
 
 ## 1. Guiding constraints
 
-These come straight from the README and drive most decisions below:
-
 | Constraint | Consequence |
 |---|---|
-| Fully offline, no `INTERNET` permission | Everything (generator, textures, sounds) is bundled; manifest actively strips `INTERNET` |
+| Fully offline, no `INTERNET` permission | All pictures, textures and sounds are bundled; manifest actively strips `INTERNET` |
+| Canvas fills the whole screen | Edge-to-edge, immersive mode; all controls float over the canvas as expandable buttons |
+| Canvas is zoomable | Pinch-zoom and two-finger pan through a `Viewport`; all drawing logic stays in document space |
 | Color never covers the outline | Outline is a separate layer composited **on top**; it is never part of the paint bitmap |
-| Fill bucket must never leak | Regions are derived from the *rendered* outline, not from vector math |
+| Fill bucket must never leak | Regions are derived from the *rendered* outline bitmap |
 | Undo/redo for every action | Every mutation of the paint layer goes through a command with a recorded before/after state |
 | Brushes look "real" | Brushes are stamp/particle based and render into raster bitmaps, not vector paths |
-| Reproducible pictures from a seed | Generator is pure, deterministic and owns its own PRNG |
-| Min SDK 26, phones + tablets | Fixed-size document, scaled to the screen; memory budget sized for low-end devices |
+| Pictures come from a curated library | Bundled, validated line-art PNGs in sections (animals, plants, various); no runtime generation |
+| Min SDK 26, phones + tablets | Document sized to the screen aspect, with a memory budget sized for low-end devices |
 
 ---
 
 ## 2. Module layout **(refines README)**
 
-The README shows a single `:app` module. The generator and drawing engine are large,
-self-contained and benefit from fast JVM tests, so they are split out. Feature modules are
-not worth it at this app size.
+The drawing engine is large, self-contained and benefits from fast JVM tests, so it is split out.
+The procedural generator from earlier drafts has been **removed**. Pictures are bundled assets.
 
 ```
-:app ───────────────▶ :drawing ─────▶ :generator
-  │                      ▲                ▲
-  └──────────▶ :data ────┘────────────────┘
+:app ──────▶ :drawing
+  │             ▲
+  └──▶ :data ───┘
 ```
 
 | Module | Type | Contents | Depends on |
 |---|---|---|---|
-| `:generator` | **Pure Kotlin/JVM** | PRNG, geometry model, parts/templates, `AnimalGenerator`, path-data parser | nothing (kotlinx-serialization only) |
-| `:drawing` | Android library | Layers, brushes, fill, region labeling, history, `DrawingEngine` | `:generator` (for `LineArt` model) |
-| `:data` | Android library | Room DB, artwork file store, MediaStore export, settings (DataStore) | `:generator`, `:drawing` (for snapshot types) |
-| `:app` | Android application | Compose UI, ViewModels, navigation, Hilt modules, sound/haptics | all of the above |
+| `:drawing` | Android library | Document, viewport, layers, brushes, fill, region labeling, history, `DrawingEngine` | nothing project-internal |
+| `:data` | Android library | Picture catalog, Room DB, artwork file store, MediaStore export, settings (DataStore) | `:drawing` (snapshot types, `RegionLabeler` for asset tests) |
+| `:app` | Android application | Compose UI, floating controls, ViewModels, navigation, Hilt modules, sound/haptics | all of the above |
 
 Rules:
-- `:generator` must not import `android.*`. This keeps it testable with plain JUnit across
-  thousands of seeds in seconds.
 - `:drawing` has no Compose dependency. It exposes `Bitmap`s and a small API; the Compose layer
-  adapts it. This keeps the engine usable from Robolectric tests and from an export worker.
+  adapts it.
+- `RegionLabeler` and `Viewport` math are **pure Kotlin** (no `android.*` imports). They operate on
+  arrays and floats, so the JVM picture-asset test and plain unit tests can use them.
 - Only `:app` knows about Hilt. Library modules expose plain constructors; `:app/di` wires them.
 
 ### Package layout
 
 ```
-generator/src/main/kotlin/com/fireworm/colourfun/generator/
-├── random/        Pcg32 (own PRNG — kotlin.random is not guaranteed stable across versions)
-├── geometry/      Vec2, Transform, PathShape (move/line/cubic/close), PathDataParser
-├── parts/         Part, PartCategory, Anchor, PartLibrary (loads JSON)
-├── templates/     BodyTemplate, Slot, QuadrupedTemplate, BirdTemplate, FishTemplate, BugTemplate
-├── scene/         Scene elements (grass, sun, clouds, water)
-├── LineArt.kt     Output model
-└── AnimalGenerator.kt
-
-drawing/src/main/kotlin/com/fireworm/colourfun/drawing/
-├── document/      Document (size, layers), DocumentCoords
-├── layers/        PaperLayer, PaintLayer, OutlineLayer, OutlineRasterizer
-├── regions/       RegionMap (connected-component labeling), RegionMaskCache
+drawing/src/main/kotlin/com/example/colourfun/drawing/
+├── document/      Document (size, pictureRect, layers), DocumentSizer
+├── viewport/      Viewport (scale, offset, clamping, doc↔screen matrices)
+├── layers/        PaperLayer, PaintLayer, OutlineLayer (loads line-art PNG → ALPHA_8)
+├── regions/       RegionLabeler (pure), RegionMap, RegionMaskCache
 ├── brushes/       Brush, BrushSpec, StrokePoint, Pencil, Pen, Chalk, Spray, SoftBrush,
 │                  PaintBrush, MagicPen, Eraser
 ├── fill/          FillOperation
@@ -71,75 +63,114 @@ drawing/src/main/kotlin/com/fireworm/colourfun/drawing/
 ├── pipette/       ColorSampler
 └── DrawingEngine.kt
 
-data/src/main/kotlin/com/fireworm/colourfun/data/
+data/src/main/kotlin/com/example/colourfun/data/
+├── library/       PictureCatalog (parses catalog.json), Picture, Section, PictureRepository
 ├── db/            ColourFunDatabase, ArtworkEntity, ArtworkDao
-├── files/         ArtworkFileStore (paint PNG, outline JSON, thumbnail)
+├── files/         ArtworkFileStore (outline copy, paint PNG, thumbnail)
 ├── export/        GalleryExporter (MediaStore)
 ├── settings/      SettingsRepository (DataStore)
 └── ArtworkRepository.kt
 
-app/src/main/java/com/fireworm/colourfun/
-├── ui/canvas/     ColoringScreen, DrawingSurface (Compose ↔ engine adapter), CanvasViewModel
-├── ui/palette/    PaletteBar, PipetteButton
-├── ui/tools/      ToolBar, SizePicker
-├── ui/gallery/    GalleryScreen, GalleryViewModel
+data/src/main/assets/pictures/
+├── catalog.json
+├── animals/       cat_01.png, cat_01_thumb.webp, ...
+├── plants/
+└── various/
+
+app/src/main/java/com/example/colourfun/
+├── ui/library/    LibraryScreen (sections + "my pictures"), LibraryViewModel
+├── ui/canvas/     ColoringScreen, DrawingSurface (Compose ↔ engine adapter, gestures), CanvasViewModel
+├── ui/controls/   ExpandableControl, PaletteControl, ToolsControl, UndoRedoButtons, FitButton
+├── ui/icons/      PaintSplatIcon, PaintBrushIcon, tool glyphs (vector drawables)
 ├── ui/parentgate/ ParentGateDialog
 ├── ui/settings/   SettingsScreen (behind parent gate)
-├── ui/theme/
+├── ui/theme/      incl. Palette.kt (color wheel + neutrals)
 ├── feedback/      SoundPlayer (SoundPool), Haptics
 ├── navigation/    ColourFunNavHost
 └── di/
+
+tools/pictures/    prepare.py (normalize + validate source images), README
 ```
 
 ---
 
-## 3. The document and its layers
+## 3. The document, viewport and layers
 
-### 3.1 Fixed document space
+### 3.1 Full-screen document **(refines README)**
 
-All drawing happens in a **fixed logical document** of **2048 × 1536 px** (4:3, landscape-first).
-The screen shows it fit-centered via a `Matrix` (document → view); touches are mapped back with
-its inverse. Benefits:
+The canvas covers the whole screen: edge-to-edge, drawn under display cutouts, system bars
+hidden in immersive mode (swipe to reveal). Landscape only.
 
-- Pictures look identical on every device and in exports.
-- Brush sizes, stamp spacing and region thresholds are defined once, in document pixels.
-- Undo patches and saved files have a stable size.
+To fill screens of any aspect without stretching, the **document matches the screen aspect**
+and the picture sits centered inside it:
 
-On devices reporting `ActivityManager.isLowRamDevice()` the document is scaled to 0.75
-(1536 × 1152). The scale is stored with each artwork.
+- Picture area: fixed **2048 × 1536** (4:3). Every library picture has exactly this size.
+- Document height `H = 1536`. Document width `W = clamp(round(H × screenAspect), 2048, 3456)`.
+  A 20:9 phone gets 3413 × 1536 and a 4:3 tablet gets 2048 × 1536.
+- `pictureRect` = the 2048 × 1536 area centered horizontally. The side margins are blank paper
+  and belong to the background region, so filling the background colors the whole screen.
+- Screens narrower than 4:3 or wider than 2.25:1 are letterboxed with a neutral backdrop.
+- On `ActivityManager.isLowRamDevice()` everything is scaled by 0.75 (picture 1536 × 1152).
+- `W`, `H`, `pictureRect` and the scale are stored with each artwork. If a saved artwork is reopened
+  on a screen with a different aspect (multi-window, another device), the stored document is
+  fit inside the screen and letterboxed. It is never resized.
 
-### 3.2 Layers and memory
+Brush sizes, stamp spacing and region thresholds are defined once, in document pixels.
 
-| Layer | Representation | Size @ 2048×1536 | Notes |
+### 3.2 Viewport: zoom and pan **(refines README)**
+
+`Viewport` holds `scale` and `offset` and produces the document→screen `Matrix` and its inverse.
+
+- `scale = 1` ("fit") shows the whole document on screen. The maximum is **4×**.
+- Pinch zooms around the gesture focal point. Two-finger drag pans. Panning is clamped so the
+  document always covers the screen, or stays centered when it is smaller than the screen.
+- When `scale > 1.05`, a **Fit** button appears and animates back to `scale = 1`.
+  There is no double-tap zoom, because children double-tap by accident while filling.
+- Zoom is view state only. It is never undoable, never saved, and every picture opens at fit.
+- Brush sizes stay in document px, so zooming in lets the child work more precisely.
+
+### 3.3 Layers and memory
+
+Sizes are for the largest document (3456 × 1536 ≈ 5.3 MP):
+
+| Layer | Representation | Size @ 3456×1536 | Notes |
 |---|---|---|---|
-| Paper | Tiled texture `BitmapShader` | ~64 KB texture | Never stored per picture; not erasable |
-| Paint | `Bitmap` ARGB_8888 | 12.6 MB | The only layer the child changes |
-| Stroke scratch | `Bitmap` ARGB_8888 | 12.6 MB | The in-progress stroke; merged into Paint on stroke end |
-| Outline | `Bitmap` **ALPHA_8** | 3.1 MB | Black-only, so alpha is enough; tinted black when drawn |
-| Region map | `ShortArray` label per pixel | 6.3 MB | Region id per pixel, `0` = outline |
-| Region mask | `Bitmap` ALPHA_8 (cached, 1–2 entries) | 3.1 MB each | Mask for "stay inside the lines" |
+| Paper | Tiled texture `BitmapShader` in document space | ~64 KB texture | Never stored per picture; not erasable |
+| Paint | `Bitmap` ARGB_8888 | 21.2 MB | The only layer the child changes |
+| Stroke scratch | `Bitmap` ARGB_8888 | 21.2 MB | The in-progress stroke; merged into Paint on stroke end |
+| Outline | `Bitmap` **ALPHA_8** | 5.3 MB | From the picture PNG (`alpha = 255 − luminance`), placed at `pictureRect` |
+| Region map | `ShortArray` label per pixel | 10.6 MB | Region id per pixel, `0` = outline |
+| Region mask | `Bitmap` ALPHA_8 (cached, 1–2 entries) | 5.3 MB each | Mask for "stay inside the lines" |
 
-Total ≈ 40 MB plus the undo budget (§6). This fits comfortably in the default heap on API 26
-devices.
+The total is ≈ 70 MB plus the undo budget (§6), and ≈ 40 MB on low-RAM devices. This fits the
+default heap on API 26 mid-range devices. If memory is tight, the first lever is making the scratch
+layer dirty-rect sized.
 
-### 3.3 Display composition
+### 3.4 Display composition
 
-`DrawingSurface` (Compose) draws, every frame the engine reports as dirty:
+`DrawingSurface` (Compose) draws, through the viewport matrix, every frame the engine or the
+viewport reports as dirty:
 
 ```
-1. paper      drawRect with the texture shader
-2. paint      drawImage(paintBitmap)
-3. stroke     drawImage(strokeScratch, alpha = brush.opacity, blendMode = brush.blendMode)
-              (DstOut for the eraser, so the preview matches the final result)
-4. outline    drawImage(outlineBitmap, colorFilter = tint(Black))
+1. backdrop   only when letterboxed
+2. paper      drawRect with the texture shader
+3. paint      drawImage(paintBitmap)
+4. stroke     drawImage(strokeScratch, alpha = brush.opacity, blendMode = brush.blendMode)
+5. outline    drawImage(outlineBitmap, colorFilter = tint(Black))
 ```
 
-The engine exposes a `frameVersion: State<Long>`. The draw lambda reads it, so only the **draw
-phase** re-runs on each stroke update — no recomposition.
+Bitmaps are drawn with bilinear filtering. At 4× the lines get soft but stay readable.
 
-> **Risk:** re-uploading a 12.6 MB bitmap texture per frame on low-end GPUs. Measure in the
-> "basic canvas" milestone. Escape hatch: split Paint/Scratch into 256 px tiles and upload only
-> dirty tiles. The engine API (`dirtyRect` per update) is designed so this is a local change.
+The engine exposes `frameVersion: State<Long>` and the viewport exposes its matrix as state. The
+draw lambda reads both, so only the **draw phase** re-runs during strokes and zoom.
+
+> **Risk:** re-uploading a 21 MB bitmap texture per frame on low-end GPUs, now also during zoom.
+> Measure in the "basic canvas" milestone. Escape hatch: 256 px tiles, uploading only dirty tiles
+> and drawing only visible tiles. The engine API (`dirtyRect` per update) keeps this a local change.
+>
+> **Option (later):** for crisp outlines at high zoom, keep a vectorized SVG of each picture
+> (produced by `prepare.py`) and draw the outline as paths at screen resolution. Regions still come
+> from the raster.
 
 ---
 
@@ -150,10 +181,8 @@ phase** re-runs on each stroke update — no recomposition.
 - `DrawingEngine` and all bitmaps are **confined to the main thread**. Per touch event a brush
   draws only a handful of stamps into a dirty rect, which is cheap.
 - Heavy, pure computations run on `Dispatchers.Default` and hand back plain arrays:
-  outline rasterization, region labeling, fill pixel computation, PNG encoding.
-  Results are applied on the main thread.
-- This avoids locking and tearing without a dedicated render thread. If profiling later shows
-  jank, the engine can move behind a single-threaded dispatcher without changing its API.
+  PNG decode, region labeling, fill pixel computation, PNG encoding. Results are applied on the
+  main thread.
 
 ### 4.2 Public API (sketch)
 
@@ -161,63 +190,70 @@ phase** re-runs on each stroke update — no recomposition.
 class DrawingEngine(document: Document, regions: RegionMap, history: History) {
     val frameVersion: State<Long>
 
-    fun beginStroke(spec: BrushSpec, color: Int, p: StrokePoint)
-    fun extendStroke(points: List<StrokePoint>)   // includes MotionEvent historical points
-    fun tick(frameTimeNanos: Long)                 // dwell time, needed by Spray
+    fun beginStroke(spec: BrushSpec, color: Int, p: StrokePoint)   // p in document coords
+    fun extendStroke(points: List<StrokePoint>)
+    fun tick(frameTimeNanos: Long)                                  // dwell time, needed by Spray
     fun endStroke()
-    fun cancelStroke()                             // second finger / palm → discard
+    fun cancelStroke()
 
     suspend fun fill(at: PointF, color: Int)
-    fun sampleColor(at: PointF): Int               // pipette
+    fun sampleColor(at: PointF): Int
 
     fun undo(); fun redo()
     val canUndo: StateFlow<Boolean>; val canRedo: StateFlow<Boolean>
 
-    fun snapshotPaint(): Bitmap                    // for save/export
+    fun snapshotPaint(): Bitmap
 }
 ```
 
-Touch input is **not** routed through the ViewModel's `StateFlow` — at 120 Hz with historical
-points that would add allocation and latency. `DrawingSurface` calls the engine directly from
-`pointerInput`; the ViewModel only owns tool/color/size selection and the engine instance.
-While a pointer is down, a `withFrameNanos` loop calls `tick()` so the spray can keep building
-density when the finger is still.
+### 4.3 Touch and gestures **(refines README)**
 
-### 4.3 Stroke pipeline
+`DrawingSurface` handles pointers directly in `pointerInput`, not through the ViewModel's
+`StateFlow`. It maps screen points through the inverse viewport matrix.
+
+| Situation | Behavior |
+|---|---|
+| One finger down, a control panel open | Collapses the panel; no paint |
+| One finger | Draw stroke / fill / pipette with the current tool |
+| Second finger joins during a stroke | The stroke ends: it is **discarded** if it is short (< 150 ms and < 24 dp travel), otherwise **committed**. Then gesture mode starts |
+| Two fingers | Zoom/pan until **all** fingers are up. No drawing in this gesture, even if one finger remains |
+| `FLAG_CANCELED` (palm, API 33+) | `cancelStroke()` |
+
+While a drawing pointer is down, a `withFrameNanos` loop calls `tick()` so the spray can keep
+building density when the finger is still.
+
+### 4.4 Stroke pipeline
 
 ```
-touch points ──▶ smoothing ──▶ resampling ──▶ brush stamps ──▶ stroke scratch
-                (1-euro filter)  (fixed spacing          │
-                                  in doc px)             ▼
-                                              clip to region mask (DstIn, dirty rect only)
-                                                         │
-                         on endStroke ──────────────────▶ merge into Paint layer
-                                                          (brush opacity + blend mode)
-                                                         │
-                                                         ▼
-                                                 StrokeCommand → History
+touch points ──▶ inverse viewport ──▶ smoothing ──▶ resampling ──▶ brush stamps ──▶ stroke scratch
+                                     (1-euro)      (fixed doc px)        │
+                                                                         ▼
+                                                     clip to region mask (DstIn, dirty rect only)
+                                                                         │
+                                     on endStroke ──────────────────────▶ merge into Paint layer
+                                                                         │
+                                                                         ▼
+                                                                 StrokeCommand → History
 ```
 
-Drawing into a **scratch layer first** gives correct medium behavior for free:
+Drawing into a **scratch layer first** gives correct medium behavior:
 
-- A single pen stroke crossing itself does not get darker (scratch is drawn opaque).
-- Pencil strokes merge at ~60 % opacity, so *separate* strokes build up darker, as the README asks.
+- A single pen stroke crossing itself does not get darker.
+- Pencil strokes merge at ~60 % opacity, so *separate* strokes build up darker.
 - The eraser draws normally into scratch and merges with `DST_OUT`, removing only paint.
 
-### 4.4 Brush model
+### 4.5 Brush model
 
 ```kotlin
 data class StrokePoint(val x: Float, val y: Float, val timeMs: Long, val pressure: Float)
-
 enum class BrushSize { Small, Medium, Large }       // no slider, per README
-
 data class BrushSpec(val medium: Medium, val size: BrushSize)
 
 interface Brush {
     val opacity: Float                     // applied at merge
     val blendMode: BlendMode               // SrcOver, or DstOut for eraser
     fun begin(ctx: StrokeContext, p: StrokePoint)
-    fun segment(ctx: StrokeContext, from: StrokePoint, to: StrokePoint): RectF  // returns dirty rect
+    fun segment(ctx: StrokeContext, from: StrokePoint, to: StrokePoint): RectF  // dirty rect
     fun dwell(ctx: StrokeContext, at: StrokePoint, dtMs: Long): RectF           // default: empty
 }
 
@@ -226,141 +262,131 @@ class StrokeContext(
     val random: Pcg32,             // seeded per stroke → deterministic rendering
     val color: Int,
     val widthPx: Float,            // resolved from BrushSize per medium
-    val paintBelow: PixelReader,   // read-only view of the paint layer (PaintBrush blending)
+    val paintBelow: PixelReader,
     val textures: TextureSet,
 )
 ```
 
-Per-medium implementation notes:
+`Pcg32` is a small PRNG in `:drawing` (kotlin.random is not guaranteed stable across versions).
 
 | Medium | Technique |
 |---|---|
 | Pencil | Small stamps with a grain `BitmapShader`, slight jitter; merged at 0.6 opacity |
 | Pen | `Path` with round caps/joins drawn per segment; opacity 1.0 |
-| Chalk | Textured stamp, random skips (`random.nextFloat() < gap`), then `DstIn` with paper grain so the paper shows through |
+| Chalk | Textured stamp, random skips, then `DstIn` with paper grain so the paper shows through |
 | Spray | Particles in a disc, Gaussian radius; particle count ∝ `dt` in both `segment` and `dwell` |
 | Brush | Width = f(velocity), low-pass filtered; stamps with a radial-gradient soft edge |
-| Paint brush | Wide soft stamps; color mixed toward `paintBelow` average under the stamp (~15 %); opacity and width decay with stroke length ("runs out") |
+| Paint brush | Wide soft stamps; color mixed toward `paintBelow` (~15 %); opacity and width decay with stroke length |
 | Magic pen | Hue = f(distance along stroke); core line + `BlurMaskFilter` glow; random sparkle stamps |
 | Eraser | Opaque round stamps; merged with `DstOut` |
 
-Because each stroke has its own seed, a stroke renders **identically every time**. This enables
-golden-image tests (§9) and keeps undo/redo free of visual surprises.
+Each stroke has its own seed, so a stroke renders **identically every time**. This enables
+golden-image tests (§9).
 
-### 4.5 Regions: "stay inside the lines" and fill
+### 4.6 Regions: "stay inside the lines" and fill
 
-Regions come from the **rendered outline bitmap**, not from vector geometry. Overlapping shapes
-(e.g. a head over a body) create new visible areas that geometry alone does not describe; the
-raster is ground truth for what the child sees.
+Regions come from the **outline bitmap** loaded from the picture PNG.
 
 1. Threshold the outline alpha (`a > 96` ⇒ line).
-2. Run 4-connected **connected-component labeling** (two-pass union-find) on non-line pixels
-   → `RegionMap` (`ShortArray`, plus per-region bounding box and area).
-   4-connectivity guarantees that a diagonal one-pixel gap in a line still separates regions.
-3. Region `0` = outline pixels; the region touching the document border = background.
+2. Run 4-connected **connected-component labeling** (two-pass union-find, `RegionLabeler`) on
+   non-line pixels → `RegionMap` (`ShortArray`, plus per-region bounding box and area).
+   With 4-connectivity, a diagonal one-pixel gap in a line still separates regions.
+3. Region `0` = outline pixels. The region touching the document border is the background,
+   which includes the side margins. Pictures guarantee that no line comes near their edges
+   (see guidelines), so the margins never split or merge picture regions.
 
 **Stay inside the lines** (optional, default on): at `beginStroke`, look up the region under the
-first point. The `RegionMaskCache` builds an ALPHA_8 mask for that region, **dilated by half the
-outline width + 1 px** so paint tucks under the anti-aliased line and no white halo remains.
-Each stroke segment is clipped with `DstIn` against that mask, over the segment's dirty rect only.
-Starting a stroke on the outline itself picks the nearest region.
+first point. `RegionMaskCache` builds an ALPHA_8 mask for that region, **dilated by half the
+outline width + 1 px**, so paint tucks under the anti-aliased line. Each segment is clipped with
+`DstIn` against that mask, over the segment's dirty rect only. If the stroke starts on the
+outline, the nearest region is used.
 
-**Fill bucket** = "paint every pixel of region *R* (dilated) with color *c*". Computed off the main
-thread as a pixel patch over the region's bounding box, then applied. It replaces whatever paint is
-in the region, which matches child expectations ("make the ear blue"). Classic pixel flood fill is
-not needed because the regions are already known, and it cannot leak by construction.
+**Fill bucket** = "paint every pixel of region *R* (dilated) with color *c*". It is computed off the
+main thread as a pixel patch over the region's bounding box, then applied. It replaces existing
+paint in the region, and it cannot leak by construction.
 
-### 4.6 Pipette
+### 4.7 Pipette
 
-`sampleColor` reads the Paint layer at the point. If the pixel is transparent it returns the paper
-color; if it is on the outline it samples the nearest non-outline pixel instead of returning black.
-Semi-transparent paint is composited over paper before returning, so the picked color matches what
-is on screen.
+`sampleColor` reads the Paint layer. A transparent pixel returns the paper color. A pixel on the
+outline samples the nearest non-outline pixel instead. Semi-transparent paint is composited over
+paper before returning.
 
 ---
 
-## 5. Animal generator (`:generator`)
+## 5. Picture library **(refines README — replaces the procedural generator)**
 
-### 5.1 Pipeline
+### 5.1 Catalog
 
-```
-seed ─▶ Pcg32 ─▶ pick template ─▶ fill slots with parts ─▶ vary proportions ─▶ scene ─▶ validate ─▶ LineArt
-                                                                                  │
-                                                         fails? ──▶ attempt+1 ────┘ (max 8, then curated fallback)
-```
-
-- `generate(seed: Long): LineArt` is pure and deterministic. Attempt *n* uses
-  `Pcg32(seed, stream = n)`, so retries are also reproducible.
-- A small set of **curated known-good seeds** is bundled as the last resort, so the child always
-  gets a picture.
-
-### 5.2 Parts and templates
-
-Parts are drawn by hand in a vector editor and exported as SVG, then converted (a small Gradle
-task in `buildSrc`/`build-logic`) into JSON in `assets/parts/`. A runtime SVG parser is not
-needed; only SVG path-data strings are parsed by `PathDataParser` in `:generator`.
+Pictures are bundled in `:data` under `assets/pictures/`. `catalog.json` is the single index:
 
 ```json
 {
-  "id": "ear_floppy_01",
-  "category": "ear",
-  "compatibleWith": ["quadruped"],
-  "paths": ["M 0 0 C 12 -30 40 -30 48 0 Z"],
-  "anchors": { "attach": [24, 0] },
-  "zOrder": 2,
-  "mirrorable": true,
-  "scaleRange": [0.85, 1.2]
+  "version": 1,
+  "sections": [
+    { "id": "animals", "icon": "paw",  "order": 0 },
+    { "id": "plants",  "icon": "leaf", "order": 1 },
+    { "id": "various", "icon": "star", "order": 2 }
+  ],
+  "pictures": [
+    {
+      "id": "animals/cat_01",
+      "section": "animals",
+      "file": "animals/cat_01.png",
+      "thumb": "animals/cat_01_thumb.webp",
+      "difficulty": "easy",
+      "regions": 18,
+      "source": "chatgpt-image, prompt v1, 2026-10-29"
+    }
+  ]
 }
 ```
 
-A `BodyTemplate` defines **slots** — named attach points on the body with allowed categories,
-count, mirroring and z-order:
+- Sections are data, not code, so adding "vehicles" later means editing JSON and adding files.
+- Sections are shown by icon (paw, leaf, star), with no text, consistent with the README's
+  minimal-text rule.
+- `difficulty` (`easy`, `medium`, `hard`) is derived from the region count by `prepare.py` and is
+  available for later sorting or filtering.
+- **Picture ids and files are immutable once shipped.** A changed picture gets a new id
+  (`cat_01` → `cat_02`). Saved artworks also keep their own outline copy (§7), so they stay valid.
 
-```kotlin
-data class Slot(
-    val name: String,              // "head", "ear_left", "leg_front", "tail", ...
-    val category: PartCategory,
-    val anchor: Vec2,              // relative to the body part's anchors
-    val mirrorOf: String? = null,  // ear_right mirrors ear_left
-    val optional: Boolean = false,
-)
+### 5.2 Asset pipeline
+
+```
+source image (ChatGPT, any size) ──▶ tools/pictures/prepare.py ──▶ 2048×1536 PNG + thumb + catalog entry
+                                       │
+                                       ├─ grayscale → threshold → despeckle (remove blobs < 64 px)
+                                       ├─ vectorize (potrace) → re-render at uniform line width
+                                       ├─ fit into 4:3 with white margin
+                                       ├─ validate (rules below); reject with a reason
+                                       └─ thumbnail 384×288 WebP
 ```
 
-Proportions are varied within each part's `scaleRange` and per-template limits (e.g. head : body
-ratio between 0.45 and 0.7 — big heads read as "cute"). Patterns (spots, stripes) are closed
-shapes clipped to the body outline.
+`prepare.py` runs on the developer machine and is not part of the Gradle build. Its output files
+are committed. Re-rendering through potrace removes AI artifacts (jaggies, near-gaps, grey specks)
+and normalizes the line weight across the library.
 
-### 5.3 Output model
+### 5.3 Picture requirements (summary)
 
-```kotlin
-data class LineArt(
-    val width: Int, val height: Int,
-    val shapes: List<OutlineShape>,       // in back-to-front order
-    val strokeWidth: Float,               // document px, >= 10 so lines are thick and never leak
-    val seed: Long, val generatorVersion: Int,
-)
+Full rules and the ChatGPT prompt: [PICTURE_GUIDELINES.md](PICTURE_GUIDELINES.md).
 
-data class OutlineShape(val path: PathShape, val occludes: Boolean = true)  // every PathShape is closed
-```
+| Rule | Value |
+|---|---|
+| Format | PNG, 8-bit grayscale, no alpha, exactly 2048 × 1536 |
+| Content | Black line art on pure white; anti-aliased edges only; no grey fills, shading, hatching or text |
+| Line width | Uniform 12–18 px |
+| Edge margin | No line pixel within 64 px of the image border |
+| Closure | Every colorable area fully closed; gaps are either 0 or ≥ 40 px |
+| Minimum region | Every region ≥ 1500 px² (`easy`: ≥ 6000 px²) |
+| Region count | 8–80 (easy 8–25, medium 26–50, hard 51–80) |
+| Subject size | Bounding box covers 45–85 % of the image area |
+| Solid black | Total solid fill (pupils etc.) ≤ 2 % of the image |
 
-### 5.4 Rendering outlines with occlusion
+### 5.4 Loading a picture
 
-`OutlineRasterizer` (in `:drawing`) draws shapes back-to-front into the ALPHA_8 outline bitmap.
-For each shape it first draws the **fill with `CLEAR`** (erasing lines of shapes behind it), then
-its stroke. The result contains only *visible* lines — the body line does not cut through a head
-that overlaps it — and the region labeling in §4.5 then sees exactly the picture the child sees.
-
-### 5.5 Validation (run on every generated picture)
-
-After rasterizing and labeling (cheap, already needed for the canvas):
-
-- All shapes are within the document with a margin.
-- **No tiny regions:** every region except outline ≥ ~1500 px² (document units). Slivers from
-  overlaps fail the attempt.
-- Region count within a sane range (e.g. 8–80).
-- The animal's bounding box covers 45–85 % of the document.
-
-The same checks run in CI over 10 000 seeds (§9).
+`NewArtworkUseCase(pictureId)`: decode PNG (background) → copy it into the artwork folder →
+place it at `pictureRect` in the outline ALPHA_8 layer → label regions → create the artwork row →
+open the canvas. Labeling 5 MP takes well under a second on mid-range devices. A spinner shows
+meanwhile.
 
 ---
 
@@ -378,14 +404,11 @@ class StrokeCommand(..., val spec: BrushSpec, val color: Int, val seed: Long, va
 class FillCommand(..., val region: Int, val color: Int) : Command
 ```
 
-- Undo writes `before` into the Paint layer; redo writes `after`. Both are O(dirty area) and
-  independent of brush randomness or the number of earlier strokes — no full replay.
-- Patches are stored as compressed `IntArray`s (deflate on a background thread; most of a stroke's
-  bounding box is unchanged and compresses very well).
+- Undo writes `before`; redo writes `after`. Both are O(dirty area), with no replay.
+- Patches are stored as compressed `IntArray`s (deflate on a background thread).
 - `History` keeps a **memory budget** (default 48 MB, 24 MB on low-RAM devices) and a max of
-  50 steps; the oldest entries are dropped first. A new command clears the redo stack.
-- Stroke metadata (`spec`, `seed`, `points`) is kept for debugging and a possible future
-  "time-lapse replay" feature; it is not needed for undo.
+  50 steps. The oldest entries are dropped first, and a new command clears the redo stack.
+- Zoom and pan are not commands.
 
 ---
 
@@ -395,48 +418,47 @@ class FillCommand(..., val region: Int, val color: Int) : Command
 
 ```
 filesDir/artworks/<artworkId>/
-├── outline.json      LineArt (serialized) — the picture is restored from this, not from the seed
-├── paint.png         Paint layer (lossless)
-└── thumb.webp        Composite thumbnail for the gallery grid
+├── outline.png       Copy of the library picture at creation time
+├── paint.png         Paint layer (lossless, full document size)
+└── thumb.webp        Composite thumbnail for "my pictures"
 ```
 
 ```kotlin
 @Entity(tableName = "artwork")
 data class ArtworkEntity(
     @PrimaryKey val id: String,          // UUID
-    val seed: Long,
-    val generatorVersion: Int,
+    val pictureId: String,               // e.g. "animals/cat_01"
+    val docWidth: Int, val docHeight: Int,
+    val pictureLeft: Int, val pictureTop: Int,
     val documentScale: Float,
     val createdAt: Long,
     val updatedAt: Long,
-    val exportedUri: String?,            // set after "save to gallery"
+    val exportedUri: String?,
 )
 ```
 
-**Outlines are stored, not regenerated from the seed.** Any change to parts or templates would
-change what an old seed produces and misalign the saved paint. The seed and `generatorVersion`
-are kept for debugging and "make another like this".
+The outline copy costs about 100 KB per artwork. In exchange, saved work survives library
+changes and picture removal.
 
 ### 7.2 Autosave and process death
 
-- The current picture is autosaved (debounced 2 s after the last command, and in `onStop`)
-  into the same artwork folder. A child never loses work when the app is backgrounded or killed.
+- Autosave runs debounced 2 s after the last command, and in `onStop`.
 - `SavedStateHandle` holds only the current `artworkId`; on restore the ViewModel reloads files.
-- Undo history is in-memory only and is lost on process death (acceptable for this audience).
+- Undo history is in-memory only and is lost on process death.
 
 ### 7.3 Save to the device gallery (behind parent gate)
 
-`GalleryExporter` flattens paper + paint + outline into a PNG and writes it through MediaStore
-to `Pictures/Colour Fun/`.
+`GalleryExporter` flattens paper + paint + outline **cropped to `pictureRect`** into a PNG, written
+through MediaStore to `Pictures/Colour Fun/`.
 
 - API 29+: `MediaStore` insert with `IS_PENDING`; no permission needed.
-- API 26–28: requires `WRITE_EXTERNAL_STORAGE` declared with `android:maxSdkVersion="28"`,
-  requested only at this moment, after the parent gate.
+- API 26–28: `WRITE_EXTERNAL_STORAGE` with `android:maxSdkVersion="28"`, requested only after the
+  parent gate.
 
 ### 7.4 Settings
 
 DataStore (Preferences): `soundEnabled`, `hapticsEnabled`, `stayInsideLines`, `lastToolSpec`,
-`lastColor`. Changes to anything except tool/color go through the parent gate.
+`lastColor`. Changes to anything except tool and color go through the parent gate.
 
 ---
 
@@ -445,26 +467,74 @@ DataStore (Preferences): `soundEnabled`, `hapticsEnabled`, `stayInsideLines`, `l
 ### 8.1 Navigation
 
 ```
-Coloring (start) ──▶ Gallery ──▶ Coloring(artworkId)
-     │
-     └──▶ [ParentGate] ──▶ Settings
-                     └──▶ Save to device / Share
+Library (start) ──▶ Coloring(new artwork from picture)
+   │      └──────▶ Coloring(existing artwork)        ["my pictures" row]
+   └──▶ [ParentGate] ──▶ Settings
+Coloring ──▶ home button ──▶ Library
+Coloring ──▶ [ParentGate] ──▶ Save to device / Share
 ```
 
-The app opens straight into **Coloring** with a new animal — no menu screen, consistent with
-"minimal text" and "no dead ends". A big "new animal" button starts a fresh picture (autosave
-keeps the old one in the in-app gallery).
+The **Library** is the start screen:
+- A **"my pictures"** row comes first, with thumbnails of saved artworks (most recent first).
+  Tapping one continues it.
+- After it come the sections (animals, plants, various) as icon tabs, each with a grid of large
+  thumbnails. Tapping one starts a new artwork. The previous work stays in "my pictures".
+- Thumbnails are ≥ 160 dp. There is no text except what the parent area needs.
 
-### 8.2 ViewModel and state
+### 8.2 Coloring screen: full-screen canvas with floating controls
+
+The canvas fills the screen. Controls float on top, inset by the system safe area (cutouts,
+gesture bars), so the canvas reaches under them:
+
+```
+┌────────────────────────────────────────────────────────┐
+│ [home]                                   [undo] [redo] │
+│                                                        │
+│                     canvas (full screen)               │
+│                                              [fit]*    │
+│ [palette ●]                                  [tools 🖌] │
+└────────────────────────────────────────────────────────┘
+ * only while zoomed in
+```
+
+**Expandable controls** (`ExpandableControl`):
+- **Palette button**: a **paint splat** icon, tinted with the current color.
+- **Tools button**: a **paint brush** icon, with a small badge showing the current tool's glyph.
+- Tapping a button expands its panel with an animation (~200 ms, spring) and a soft sound.
+  Tapping a choice selects it and collapses the panel. Tapping the button again, or anywhere on
+  the canvas, also collapses it, and that tap does **not** paint.
+- Only one panel is open at a time.
+- Buttons are 72 dp, and panel items are ≥ 56 dp with ≥ 8 dp spacing.
+- Icons are original vector drawables (`ui/icons/`).
+
+**Palette panel**: the 12-color wheel in wheel order, then the neutrals, then the pipette:
+
+| Group | Colors |
+|---|---|
+| Primary | Red `#E53935`, Yellow `#FDD835`, Blue `#1E63D6` |
+| Secondary | Orange `#FB8C00`, Green `#43A047`, Violet `#8E24AA` |
+| Tertiary | Red-orange `#F4511E`, Yellow-orange `#FFB300`, Yellow-green `#9CCC3C`, Blue-green `#00897B`, Blue-violet `#5E35B1`, Red-violet `#C2185B` |
+| Neutrals | Black `#212121`, White `#FFFFFF`, Grey `#9E9E9E`, Brown `#8D5524`, Pink `#F48FB1` |
+| Tool | Pipette: the next canvas tap picks a color, then the previous tool returns |
+
+The wheel colors are laid out as a ring, or a 4 × 3 grid in wheel order on small phones, so the
+color wheel itself is visible. Colors are defined once in `ui/theme/Palette.kt`.
+
+**Tools panel**: Pencil, Pen, Chalk, Spray, Brush, Paint brush, Magic pen, Eraser, Fill bucket,
+followed by a row of three size dots (S/M/L) for the selected medium. Each tool's icon shows the
+current color where that makes sense.
+
+### 8.3 ViewModel and state
 
 ```kotlin
 data class ColoringUiState(
     val loading: Boolean = true,
     val tool: Tool = Tool.Draw(BrushSpec(Medium.Pencil, BrushSize.Medium)),
     val color: Int,
-    val palette: List<Int>,
+    val openPanel: Panel? = null,          // Palette | Tools
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
+    val zoomedIn: Boolean = false,         // shows the Fit button
     val stayInsideLines: Boolean = true,
 )
 
@@ -476,35 +546,33 @@ sealed interface Tool {
 }
 
 sealed interface ColoringEvent {
+    data class TogglePanel(val panel: Panel) : ColoringEvent
+    data object ClosePanels : ColoringEvent
     data class SelectTool(val tool: Tool) : ColoringEvent
     data class SelectColor(val color: Int) : ColoringEvent
     data object Undo : ColoringEvent
     data object Redo : ColoringEvent
-    data object NewAnimal : ColoringEvent
+    data object FitToScreen : ColoringEvent
 }
 ```
 
-`CanvasViewModel` exposes `StateFlow<ColoringUiState>` and `onEvent(ColoringEvent)`
-(unidirectional data flow). It owns the `DrawingEngine` for the current picture. As noted in
-§4.2, raw touch input bypasses the ViewModel and goes to the engine directly.
+`CanvasViewModel` exposes `StateFlow<ColoringUiState>` and `onEvent(ColoringEvent)`. It owns the
+`DrawingEngine` and the `Viewport`. Raw touch bypasses it (§4.3).
 
-Use cases (thin, in `:app/domain` or the ViewModel package):
-`NewPictureUseCase` (generate → rasterize → label → create artwork),
-`LoadPictureUseCase`, `AutosaveUseCase`, `ExportToGalleryUseCase`.
+Use cases: `NewArtworkUseCase(pictureId)`, `LoadArtworkUseCase`, `AutosaveUseCase`,
+`ExportToGalleryUseCase`.
 
-### 8.3 Kid-friendly UI rules (from README, made concrete)
+### 8.4 Kid-friendly UI rules
 
-- Touch targets ≥ 64 dp for primary controls, ≥ 48 dp for everything.
-- Tool bar and palette on the screen edges; the canvas never scrolls or zooms in v1
-  (zoom/pan is a later, parent-toggled feature).
-- Multi-touch: a second finger **cancels** the current stroke (`cancelStroke`) instead of
-  drawing a stray line; palm rejection uses `MotionEvent.FLAG_CANCELED` on API 33+.
+- Touch targets ≥ 64 dp for primary controls and ≥ 48 dp for everything else.
+- Zoom and pan are available in v1. A Fit button always returns to the whole picture.
+- No dead ends: home is always one tap away, and panels collapse on any canvas tap.
 - Every tap gives feedback: `SoundPool` short sounds (mutable) + light haptic tick.
 
-### 8.4 Parent gate
+### 8.5 Parent gate
 
 A modal asking to enter digits written as words ("Type: seven, two, four"), randomized each time.
-Pre-readers cannot pass it; adults pass it in seconds. Guards: settings, save to device, share.
+It guards settings, save to device and share.
 
 ---
 
@@ -512,29 +580,33 @@ Pre-readers cannot pass it; adults pass it in seconds. Guards: settings, save to
 
 | Area | Kind | What |
 |---|---|---|
-| Generator | JVM unit, property-based | 10 000 seeds: deterministic (same seed ⇒ same `LineArt`), all paths closed, validation passes, generation < 50 ms |
-| Generator | Golden | A few fixed seeds serialized to JSON; any diff must bump `generatorVersion` |
-| Region labeling | JVM/Robolectric | Synthetic outlines: diagonal gaps don't merge regions, nested shapes, document-border region |
+| Picture assets | JVM unit (ImageIO + `RegionLabeler`) | Every catalog entry: file exists, 2048×1536 grayscale, edge margin, region count and minimum size, ids unique, thumbnails present. Runs in CI over `assets/pictures/` |
+| Region labeling | JVM | Synthetic outlines: diagonal gaps don't merge regions, nested shapes, border region, side margins join the background |
+| Viewport | JVM | Fit scale per aspect, focal-point zoom, pan clamping, doc↔screen round trip |
+| Document sizing | JVM | `W` for 4:3, 16:10, 20:9 and 21:9 screens; low-RAM scale; letterbox cases |
 | Fill | Robolectric (`@GraphicsMode(NATIVE)`) | Fill never changes pixels outside the dilated region; outline unaffected |
-| Brushes | Screenshot (Roborazzi) | Each medium × size draws a fixed stroke with a fixed seed → compared to golden PNGs |
-| History | Robolectric | Random sequences of strokes/fills/undo/redo; Paint bitmap equals expected after each step; budget eviction |
-| Persistence | Instrumented | Save → kill → restore yields identical paint pixels |
-| UI | Compose UI tests | Tool selection, parent gate, undo/redo enabled state |
+| Brushes | Screenshot (Roborazzi) | Each medium × size draws a fixed stroke with a fixed seed → golden PNGs |
+| History | Robolectric | Random strokes/fills/undo/redo; paint equals expected after each step; budget eviction |
+| Gestures | Compose UI test | Second finger: short stroke discarded, long stroke committed; panel open → tap closes without painting |
+| Persistence | Instrumented | Save → kill → restore yields identical paint pixels and document size |
+| UI | Compose UI tests | Panel expand/collapse, tool/color selection, parent gate, undo/redo state, library → canvas |
 | Manifest | Unit/lint check | Merged manifest has no `INTERNET` permission |
 
-Performance checks (Macrobenchmark, later): stroke latency and frame time on a low-end API 26 device.
+Performance (Macrobenchmark, later): stroke latency, frame time while drawing and while zooming,
+on a low-end API 26 device.
 
 ---
 
 ## 10. Privacy & safety enforcement
 
 - `AndroidManifest.xml` contains
-  `<uses-permission android:name="android.permission.INTERNET" tools:node="remove" />`
-  so no library can merge it in, plus the merged-manifest test above.
+  `<uses-permission android:name="android.permission.INTERNET" tools:node="remove" />`,
+  plus the merged-manifest test above.
 - No analytics, crash reporting or ads SDKs in the dependency graph.
 - `android:allowBackup` is limited to settings via `dataExtractionRules`; artworks stay local.
-- Sharing (roadmap) uses `FileProvider` + `ACTION_SEND` behind the parent gate; nothing is sent
-  by the app itself.
+- Sharing (roadmap) uses `FileProvider` + `ACTION_SEND` behind the parent gate.
+- Library pictures are reviewed by a person before they are committed (child-safe content, no
+  copyrighted characters). See the guidelines.
 
 ---
 
@@ -542,36 +614,38 @@ Performance checks (Macrobenchmark, later): stroke latency and frame time on a l
 
 | Roadmap item | Architecture pieces |
 |---|---|
-| Project setup | Gradle modules, version catalog, Hilt, manifest permission strip |
-| Basic canvas with pen + undo/redo | `Document`, Paint + scratch layers, `Pen`, `History`, `DrawingSurface`; **measure texture upload cost here** |
-| Palette + pipette | `PaletteBar`, `ColorSampler` |
-| Layered canvas | Paper texture, `OutlineLayer`, display composition |
-| Flood fill | `OutlineRasterizer`, `RegionMap`, `FillCommand` |
-| All 7 mediums | `brushes/*`, scratch-layer merge modes, screenshot tests |
-| Generator v1 | `:generator` end to end, validation, seed property tests |
-| Save with parent gate | `:data`, autosave, `GalleryExporter`, `ParentGateDialog` |
+| Project setup | Gradle modules (`:app`, `:drawing`, `:data`), version catalog, Hilt, manifest strip, immersive full-screen |
+| Layered canvas | `Document` + `DocumentSizer`, paper/paint/outline layers, outline from a test PNG, display composition |
+| Zoom & pan | `Viewport`, two-finger gestures, Fit button; **measure texture upload here** |
+| Basic pen + undo/redo | Stroke scratch, `Pen`, `History`, gesture/stroke arbitration |
+| Floating controls + palette + pipette | `ExpandableControl`, splat/brush icons, `Palette.kt`, `ColorSampler` |
+| Flood fill | `RegionLabeler`, `RegionMap`, `FillCommand`, stay-inside clipping |
+| All 7 mediums | `brushes/*`, merge modes, screenshot tests |
+| Picture library | `prepare.py`, `catalog.json`, `PictureRepository`, `LibraryScreen`, asset test |
+| Save with parent gate | Persistence, autosave, "my pictures", `GalleryExporter`, `ParentGateDialog` |
 
-Suggested order differs slightly from the README: build the **layered canvas and outline
-rasterizer before the pen**, using a hand-written test outline. Stroke clipping, fill and the
-eraser all depend on the layer split, and retrofitting it later is costly.
+Build the **layered canvas and zoom before the pen**. Stroke clipping, fill, the eraser and touch
+mapping all depend on the layer split and the viewport, and retrofitting them later is costly.
 
 ---
 
 ## 12. Open questions
 
-1. **Orientation:** landscape-only, or support portrait with a letterboxed 4:3 document?
-   (This design assumes landscape-first.)
+1. **Orientation:** landscape-only (current design), or also portrait with a vertical document?
 2. **Fill semantics:** should fill replace all paint in a region (current design) or only fill
    the unpainted pixels?
 3. **Stay inside the lines:** default on for all ages, or a parent setting?
-4. **Parts pipeline:** who authors the SVG parts, and is a build-time SVG → JSON converter
-   acceptable vs. hand-written JSON for v1?
+4. **Palette extras:** keep the five neutrals (black, white, grey, brown, pink) next to the
+   12-color wheel, or the wheel only?
+5. **Re-opening a picture:** a library tap always starts a new artwork (current design), or it
+   continues the latest artwork of that picture?
+6. **Max zoom:** is 4× enough on 10" tablets?
 
 ---
 
 ## Appendix: repository housekeeping
 
-`.gitignore` currently ignores `*.jar`, which will also ignore
-`gradle/wrapper/gradle-wrapper.jar`. Add `!gradle/wrapper/gradle-wrapper.jar` when the Gradle
-project is created, and add standard Android entries (`build/`, `.gradle/`, `local.properties`,
-`.idea/`, `*.iml`, `captures/`).
+`.gitignore` currently ignores `*.jar`, which also ignores `gradle/wrapper/gradle-wrapper.jar`.
+Add `!gradle/wrapper/gradle-wrapper.jar` when the Gradle project is created, and add standard
+Android entries (`build/`, `.gradle/`, `local.properties`, `.idea/`, `*.iml`, `captures/`).
+Also ignore `tools/pictures/inbox/` and `tools/pictures/rejected/` (raw sources).
