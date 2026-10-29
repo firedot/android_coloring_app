@@ -74,7 +74,10 @@ class ArtworkRepository(
         }
     }
 
-    suspend fun setExportedUri(id: String, uri: String) = withContext(io) { dao.setExportedUri(id, uri) }
+    /** Waits for pending saves, so the row of a just-saved picture exists. */
+    suspend fun setExportedUri(id: String, uri: String) = withContext(io) {
+        saving.withLock { dao.setExportedUri(id, uri) }
+    }
 
     suspend fun delete(id: String) = withContext(io) {
         saving.withLock {

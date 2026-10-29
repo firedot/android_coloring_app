@@ -9,11 +9,16 @@ import androidx.navigation.navArgument
 import com.fireworm.colourfun.ui.canvas.CanvasViewModel
 import com.fireworm.colourfun.ui.canvas.ColoringScreen
 import com.fireworm.colourfun.ui.gallery.GalleryScreen
+import com.fireworm.colourfun.ui.settings.SettingsScreen
 
 private const val COLORING = "coloring?${CanvasViewModel.ARTWORK_ID}={${CanvasViewModel.ARTWORK_ID}}"
 private const val GALLERY = "gallery"
+private const val SETTINGS = "settings"
 
-/** Coloring (start, with a new animal) ↔ Gallery. Opening a picture replaces the coloring screen. */
+/**
+ * Coloring (start, with a new animal) ↔ Gallery; Settings after the parent gate. Opening a picture
+ * replaces the coloring screen.
+ */
 @Composable
 fun ColourFunNavHost() {
     val navController = rememberNavController()
@@ -28,8 +33,12 @@ fun ColourFunNavHost() {
                 },
             ),
         ) {
-            ColoringScreen(onOpenGallery = { navController.navigate(GALLERY) { launchSingleTop = true } })
+            ColoringScreen(
+                onOpenGallery = { navController.navigate(GALLERY) { launchSingleTop = true } },
+                onOpenSettings = { navController.navigate(SETTINGS) { launchSingleTop = true } },
+            )
         }
+        composable(SETTINGS) { SettingsScreen(onBack = { navController.popBackStack() }) }
         composable(GALLERY) {
             GalleryScreen(
                 onBack = { navController.popBackStack() },

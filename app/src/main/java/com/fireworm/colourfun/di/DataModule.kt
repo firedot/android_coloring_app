@@ -2,6 +2,7 @@ package com.fireworm.colourfun.di
 
 import android.content.Context
 import com.fireworm.colourfun.data.artwork.ArtworkRepository
+import com.fireworm.colourfun.data.export.GalleryExporter
 import com.fireworm.colourfun.data.settings.SettingsRepository
 import dagger.Module
 import dagger.Provides
@@ -30,6 +31,10 @@ object DataModule {
     @Provides
     @Singleton
     fun provideSettingsRepository(@ApplicationContext context: Context) = SettingsRepository.create(context)
+
+    @Provides
+    @Singleton
+    fun provideGalleryExporter(@ApplicationContext context: Context) = GalleryExporter(context)
 
     @Provides
     @Singleton

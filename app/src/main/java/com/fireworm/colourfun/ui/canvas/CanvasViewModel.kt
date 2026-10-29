@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fireworm.colourfun.data.settings.Settings
 import com.fireworm.colourfun.data.settings.SettingsRepository
+import com.fireworm.colourfun.domain.ExportToGalleryUseCase
 import com.fireworm.colourfun.domain.LoadPictureUseCase
 import com.fireworm.colourfun.domain.NewPictureUseCase
 import com.fireworm.colourfun.domain.Picture
@@ -25,6 +26,8 @@ import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,6 +40,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -110,6 +114,15 @@ sealed interface ColoringEvent {
 
     /** The screen is going away (onStop): save now rather than after the autosave delay. */
     data object Save : ColoringEvent
+
+    /** Save the picture to the device's photos. Only sent after the parent gate (and permission on 26–28). */
+    data object ExportToGallery : ColoringEvent
+}
+
+/** One-off results for the screen to show. */
+sealed interface ColoringEffect {
+    data object Exported : ColoringEffect
+    data object ExportFailed : ColoringEffect
 }
 
 /**
@@ -127,6 +140,7 @@ class CanvasViewModel @Inject constructor(
     private val newPicture: NewPictureUseCase,
     private val loadPicture: LoadPictureUseCase,
     private val saveArtwork: SaveArtworkUseCase,
+    private val exportToGallery: ExportToGalleryUseCase,
     private val settings: SettingsRepository,
     private val savedState: SavedStateHandle,
 ) : ViewModel() {
@@ -138,6 +152,9 @@ class CanvasViewModel @Inject constructor(
 
     /** `null` while the picture is being prepared. */
     val engine: StateFlow<DrawingEngine?> = _engine.asStateFlow()
+
+    private val _effects = Channel<ColoringEffect>(Channel.BUFFERED)
+    val effects: Flow<ColoringEffect> = _effects.receiveAsFlow()
 
     private var pictureJob: Job? = null
 
@@ -199,6 +216,7 @@ class CanvasViewModel @Inject constructor(
             ColoringEvent.Redo -> _engine.value?.redo()
             ColoringEvent.NewAnimal -> newAnimal()
             ColoringEvent.Save -> save()
+            ColoringEvent.ExportToGallery -> export()
         }
     }
 
@@ -236,6 +254,18 @@ class CanvasViewModel @Inject constructor(
         val id = artworkId ?: UUID.randomUUID().toString().also { artworkId = it }
         saveArtwork(id, art, engine.document)
         savedEdits = edits
+    }
+
+    private fun export() {
+        val engine = _engine.value ?: return
+        // Saving first gives the picture an id to record the export against.
+        save()
+        val id = artworkId
+        viewModelScope.launch {
+            val effect = runCatching { exportToGallery(engine.document, id) }
+                .fold(onSuccess = { ColoringEffect.Exported }, onFailure = { ColoringEffect.ExportFailed })
+            _effects.send(effect)
+        }
     }
 
     private fun restore(saved: Settings) {

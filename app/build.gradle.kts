@@ -106,6 +106,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
 
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.test.ext.junit)
@@ -113,4 +115,34 @@ dependencies {
     androidTestImplementation(libs.androidx.test.espresso.core)
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+// The app must stay fully offline: fail `check` if any variant's merged manifest asks for INTERNET.
+abstract class CheckNoInternetPermission : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val mergedManifest: RegularFileProperty
+
+    @get:OutputFile
+    abstract val report: RegularFileProperty
+
+    @TaskAction
+    fun verify() {
+        val manifest = mergedManifest.get().asFile
+        if (manifest.readText().contains("android.permission.INTERNET")) {
+            throw GradleException("$manifest requests android.permission.INTERNET; the app must stay offline.")
+        }
+        report.get().asFile.writeText("No INTERNET permission in $manifest\n")
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        val name = variant.name.replaceFirstChar(Char::uppercase)
+        val checkTask = tasks.register<CheckNoInternetPermission>("check${name}NoInternet") {
+            mergedManifest.set(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.MERGED_MANIFEST))
+            report.set(layout.buildDirectory.file("reports/noInternet/${variant.name}.txt"))
+        }
+        tasks.named("check") { dependsOn(checkTask) }
+    }
 }

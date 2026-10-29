@@ -1,5 +1,10 @@
 package com.fireworm.colourfun.ui.canvas
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
@@ -19,15 +24,25 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -35,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fireworm.colourfun.R
 import com.fireworm.colourfun.debug.rememberFrameTimeLogger
 import com.fireworm.colourfun.drawing.DrawingEngine
+import com.fireworm.colourfun.ui.gate.ParentGateDialog
 import com.fireworm.colourfun.ui.palette.SpectrumPalette
 import com.fireworm.colourfun.ui.tools.SizePicker
 import com.fireworm.colourfun.ui.tools.ToolBar
@@ -44,7 +60,7 @@ private val EdgePadding = 8.dp
 private val HistoryButtonSize = 56.dp
 
 @Composable
-fun ColoringScreen(onOpenGallery: () -> Unit, viewModel: CanvasViewModel = hiltViewModel()) {
+fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewModel: CanvasViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val engine by viewModel.engine.collectAsStateWithLifecycle()
     val frameTimeLogger = rememberFrameTimeLogger()
@@ -52,6 +68,44 @@ fun ColoringScreen(onOpenGallery: () -> Unit, viewModel: CanvasViewModel = hiltV
 
     // Leaving the screen or the app: save without waiting for the autosave delay.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { onEvent(ColoringEvent.Save) }
+
+    val snackbar = remember { SnackbarHostState() }
+    val exportDone = stringResource(R.string.export_done)
+    val exportFailed = stringResource(R.string.export_failed)
+    LaunchedEffect(viewModel) {
+        viewModel.effects.collect { effect ->
+            snackbar.showSnackbar(if (effect == ColoringEffect.Exported) exportDone else exportFailed)
+        }
+    }
+
+    // Saving to photos on API 26–28 needs the storage permission, asked for only after the gate.
+    val context = LocalContext.current
+    val storagePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) onEvent(ColoringEvent.ExportToGallery)
+    }
+    fun export() {
+        val needsPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+        if (needsPermission) storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE) else onEvent(ColoringEvent.ExportToGallery)
+    }
+
+    var gate by rememberSaveable { mutableStateOf<GateTarget?>(null) }
+    gate?.let { target ->
+        ParentGateDialog(
+            onPass = {
+                gate = null
+                when (target) {
+                    GateTarget.Settings -> onOpenSettings()
+                    GateTarget.Export -> export()
+                }
+            },
+            onDismiss = { gate = null },
+        )
+    }
+    val parentButtons = @Composable {
+        ParentButton(R.drawable.ic_download, R.string.export) { gate = GateTarget.Export }
+        ParentButton(R.drawable.ic_settings, R.string.settings) { gate = GateTarget.Settings }
+    }
 
     val canvas = @Composable { modifier: Modifier ->
         Box(modifier) {
@@ -68,6 +122,7 @@ fun ColoringScreen(onOpenGallery: () -> Unit, viewModel: CanvasViewModel = hiltV
                 )
             }
             if (uiState.loading) CircularProgressIndicator(Modifier.align(Alignment.Center).size(64.dp))
+            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
         }
     }
     val palette = @Composable { vertical: Boolean, modifier: Modifier ->
@@ -122,6 +177,7 @@ fun ColoringScreen(onOpenGallery: () -> Unit, viewModel: CanvasViewModel = hiltV
                     ) {
                         tools(true)
                         sizes()
+                        Row(horizontalArrangement = Arrangement.spacedBy(EdgePadding)) { parentButtons() }
                     }
                 }
             } else {
@@ -141,11 +197,17 @@ fun ColoringScreen(onOpenGallery: () -> Unit, viewModel: CanvasViewModel = hiltV
                             Spacer(Modifier.weight(1f))
                             HistoryButtons(uiState, onEvent)
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(EdgePadding)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(EdgePadding),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             GalleryButton(Modifier.size(width = 88.dp, height = HistoryButtonSize), onOpenGallery)
                             NewAnimalButton(Modifier.size(width = 120.dp, height = 64.dp), enabled = !uiState.loading) {
                                 onEvent(ColoringEvent.NewAnimal)
                             }
+                            Spacer(Modifier.weight(1f))
+                            parentButtons()
                         }
                     }
                     canvas(Modifier.weight(1f).fillMaxWidth())
@@ -153,6 +215,17 @@ fun ColoringScreen(onOpenGallery: () -> Unit, viewModel: CanvasViewModel = hiltV
                 }
             }
         }
+    }
+}
+
+/** What the parent gate is guarding. */
+private enum class GateTarget { Settings, Export }
+
+/** Small and plain: for grown-ups, behind the parent gate. */
+@Composable
+private fun ParentButton(@DrawableRes icon: Int, @StringRes label: Int, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
+        Icon(painterResource(icon), contentDescription = stringResource(label), tint = Color.Gray)
     }
 }
 

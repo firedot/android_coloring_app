@@ -7,6 +7,31 @@
     <string name="gallery_empty">No pictures yet</string>
     <string name="open_picture">Colour this picture</string>
     <string name="back">Back</string>
+    <string name="settings">Settings</string>
+    <string name="settings_sound">Sounds</string>
+    <string name="settings_haptics">Vibration</string>
+    <string name="settings_stay_inside">Stay inside the lines</string>
+    <string name="export">Save to photos</string>
+    <string name="export_done">Saved to photos</string>
+    <string name="export_failed">Could not save the picture</string>
+    <string name="parent_gate_title">Grown-ups only</string>
+    <string name="parent_gate_prompt">Type this number with digits:</string>
+    <string name="parent_gate_answer">Number</string>
+    <string name="parent_gate_wrong">Not quite. Try this one.</string>
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+    <string-array name="digit_words">
+        <item>zero</item>
+        <item>one</item>
+        <item>two</item>
+        <item>three</item>
+        <item>four</item>
+        <item>five</item>
+        <item>six</item>
+        <item>seven</item>
+        <item>eight</item>
+        <item>nine</item>
+    </string-array>
     <string name="tool_pen">Pen</string>
     <string name="tool_pencil">Pencil</string>
     <string name="tool_chalk">Chalk</string>
