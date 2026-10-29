@@ -43,6 +43,16 @@ captures/
 *.iml
 .DS_Store
 
+# Raw picture sources for tools/pictures/prepare.py
+tools/pictures/inbox/
+tools/pictures/rejected/
+
 # Signing keys
 *.jks
 *.keystore
+
+# Claude Code instructions: local only, never tracked
+CLAUDE.md
+docs/app/
+docs/data/
+docs/drawing/
