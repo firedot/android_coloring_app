@@ -151,6 +151,9 @@ internal fun Panel?.after(event: ColoringEvent): Panel? = when (event) {
 sealed interface ColoringEffect {
     data object Exported : ColoringEffect
     data object ExportFailed : ColoringEffect
+
+    /** Neither the saved artwork nor the picture could be opened; back to the library. */
+    data object Unavailable : ColoringEffect
 }
 
 /**
@@ -200,6 +203,9 @@ class CanvasViewModel @Inject constructor(
     /** The artwork being coloured. */
     private var artwork: PreparedArtwork? = null
 
+    /** The library picture a new artwork starts from (navigation argument). */
+    private val pictureId: String? = savedState[PICTURE_ID]
+
     /** `null` until the current picture is first saved. Also the navigation argument. */
     private var artworkId: String?
         get() = savedState[ARTWORK_ID]
@@ -219,8 +225,12 @@ class CanvasViewModel @Inject constructor(
             rememberToolAndColor()
             val restored = artworkId?.let { loadArtwork(it) }
             if (restored == null) artworkId = null
-            // Until the picture library exists, every new artwork uses the bundled test picture.
-            show(restored ?: newArtwork(TEST_PICTURE_ID))
+            val prepared = restored ?: pictureId?.let { runCatching { newArtwork(it) }.getOrNull() }
+            if (prepared == null) {
+                _effects.send(ColoringEffect.Unavailable)
+                return@launch
+            }
+            show(prepared)
         }
         viewModelScope.launch {
             settings.settings.map { it.stayInsideLines }.distinctUntilChanged().collect { stayInside ->
@@ -396,11 +406,9 @@ class CanvasViewModel @Inject constructor(
     }
 
     companion object {
-        /** Navigation argument and saved-state key. */
+        /** Navigation arguments: a saved artwork to continue, or a library picture to start from. */
         const val ARTWORK_ID = "artworkId"
-
-        /** The bundled test picture, until the picture library replaces it. */
-        private const val TEST_PICTURE_ID = "test/cat"
+        const val PICTURE_ID = "pictureId"
 
         private const val AUTOSAVE_DELAY_MS = 2_000L
         private const val SETTINGS_DELAY_MS = 500L

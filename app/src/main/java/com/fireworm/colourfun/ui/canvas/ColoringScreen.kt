@@ -63,7 +63,7 @@ private val Letterbox = Color(0xFFE8E8E8)
 private val EdgePadding = 12.dp
 
 @Composable
-fun ColoringScreen(onHome: () -> Unit, onOpenSettings: () -> Unit, viewModel: CanvasViewModel = hiltViewModel()) {
+fun ColoringScreen(onHome: () -> Unit, viewModel: CanvasViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val engine by viewModel.engine.collectAsStateWithLifecycle()
     val frameTimeLogger = rememberFrameTimeLogger()
@@ -83,7 +83,11 @@ fun ColoringScreen(onHome: () -> Unit, onOpenSettings: () -> Unit, viewModel: Ca
     val exportFailed = stringResource(R.string.export_failed)
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
-            snackbar.showSnackbar(if (effect == ColoringEffect.Exported) exportDone else exportFailed)
+            when (effect) {
+                ColoringEffect.Exported -> snackbar.showSnackbar(exportDone)
+                ColoringEffect.ExportFailed -> snackbar.showSnackbar(exportFailed)
+                ColoringEffect.Unavailable -> onHome()
+            }
         }
     }
 
@@ -98,17 +102,14 @@ fun ColoringScreen(onHome: () -> Unit, onOpenSettings: () -> Unit, viewModel: Ca
         if (needsPermission) storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE) else onEvent(ColoringEvent.ExportToGallery)
     }
 
-    var gate by rememberSaveable { mutableStateOf<GateTarget?>(null) }
-    gate?.let { target ->
+    var gate by rememberSaveable { mutableStateOf(false) }
+    if (gate) {
         ParentGateDialog(
             onPass = {
-                gate = null
-                when (target) {
-                    GateTarget.Settings -> onOpenSettings()
-                    GateTarget.Export -> export()
-                }
+                gate = false
+                export()
             },
-            onDismiss = { gate = null },
+            onDismiss = { gate = false },
         )
     }
 
@@ -147,11 +148,7 @@ fun ColoringScreen(onHome: () -> Unit, onOpenSettings: () -> Unit, viewModel: Ca
                 parentButtons = {
                     ParentButton(R.drawable.ic_download, R.string.export) {
                         feedback(Sound.Tap)
-                        gate = GateTarget.Export
-                    }
-                    ParentButton(R.drawable.ic_settings, R.string.settings) {
-                        feedback(Sound.Tap)
-                        gate = GateTarget.Settings
+                        gate = true
                     }
                 },
                 modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(EdgePadding),
@@ -162,7 +159,7 @@ fun ColoringScreen(onHome: () -> Unit, onOpenSettings: () -> Unit, viewModel: Ca
 }
 
 /**
- * The floating controls: home (plus the small grown-up buttons) top-start, undo/redo top-end, the
+ * The floating controls: home (plus the small grown-up button) top-start, undo/redo top-end, the
  * palette bottom-start, the tools bottom-end with the Fit button above them while zoomed in.
  */
 @Composable
@@ -234,9 +231,6 @@ private fun soundFor(event: ColoringEvent, tool: Tool): Sound? = when (event) {
     is ColoringEvent.TapAt -> if (tool == Tool.Fill) Sound.Fill else Sound.Tap
     ColoringEvent.ToggleStayInsideLines, ColoringEvent.Save, ColoringEvent.ExportToGallery -> null
 }
-
-/** What the parent gate is guarding. */
-private enum class GateTarget { Settings, Export }
 
 /** Small and plain: for grown-ups, behind the parent gate. */
 @Composable

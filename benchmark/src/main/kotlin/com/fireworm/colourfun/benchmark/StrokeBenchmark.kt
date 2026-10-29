@@ -49,14 +49,17 @@ class StrokeBenchmark {
             pressHome()
             startActivityAndWait()
             waitForPicture()
+            device.findObject(By.desc("Tools"))?.click()
             device.findObject(By.desc(tool))?.click()
         },
     ) {
         repeat(STROKES) { drawWave(it) }
     }
 
-    /** The canvas appears once the picture is decoded and labelled. */
+    /** Opens the first library picture; the canvas appears once it is decoded and labelled. */
     private fun MacrobenchmarkScope.waitForPicture() {
+        device.wait(Until.hasObject(By.desc("Colour this picture")), 15_000)
+        device.findObject(By.desc("Colour this picture"))?.click()
         device.wait(Until.hasObject(By.desc("Picture to colour")), 15_000)
     }
 

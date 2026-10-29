@@ -46,6 +46,8 @@ captures/
 # Raw picture sources for tools/pictures/prepare.py
 tools/pictures/inbox/
 tools/pictures/rejected/
+tools/pictures/.venv/
+__pycache__/
 
 # Signing keys
 *.jks
