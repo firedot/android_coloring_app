@@ -8,21 +8,21 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-/** The bundled picture library under `assets/pictures/`. The catalog is read once. */
+/** The bundled picture library under `assets/pictures/`. The folders are listed once. */
 class PictureRepository(private val assets: AssetManager) {
 
     private val mutex = Mutex()
-    private var catalog: PictureCatalog? = null
+    private var library: PictureLibrary? = null
 
-    suspend fun catalog(): PictureCatalog = mutex.withLock {
-        catalog ?: withContext(Dispatchers.IO) {
-            PictureCatalog.parse(assets.open("$DIR/catalog.json").bufferedReader().use { it.readText() })
-        }.also { catalog = it }
+    suspend fun library(): PictureLibrary = mutex.withLock {
+        library ?: withContext(Dispatchers.IO) {
+            PictureLibrary.scan { path -> assets.list(if (path.isEmpty()) DIR else "$DIR/$path").orEmpty().toList() }
+        }.also { library = it }
     }
 
-    /** The picture's line-art PNG; throws if [pictureId] is not in the catalog. */
+    /** The picture's line-art PNG; throws if there is no picture [pictureId]. */
     suspend fun outlinePng(pictureId: String): ByteArray {
-        val picture = requireNotNull(catalog().picture(pictureId)) { "No picture $pictureId" }
+        val picture = requireNotNull(library().picture(pictureId)) { "No picture $pictureId" }
         return withContext(Dispatchers.IO) { assets.open("$DIR/${picture.file}").use { it.readBytes() } }
     }
 

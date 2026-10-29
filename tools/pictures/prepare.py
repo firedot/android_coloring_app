@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Turns a source line-art image into a library picture for Colour Fun.
 
-    python tools/pictures/prepare.py inbox/animals/cat_01.png --section animals
+    python tools/pictures/prepare.py tools/pictures/inbox/animals/cat_01.png
     python tools/pictures/prepare.py --synthetic
 
 Steps: grayscale -> threshold -> despeckle -> fit into 2048 x 1536 with a white margin ->
 skeleton -> re-stroke at a uniform width -> potrace -> anti-aliased render -> validate the
-T-rules of docs/PICTURE_GUIDELINES.md -> write the PNG, a 384 x 288 WebP thumbnail and the
-catalog entry. A picture that fails a rule is moved to rejected/ with the reason next to it.
+T-rules of docs/PICTURE_GUIDELINES.md -> write <section>/<name>.png and a 384 x 288
+<name>_thumb.webp into the app's assets. The app lists those folders; there is no index to
+maintain. A picture that fails a rule is moved to rejected/ with the reasons next to it.
 
 --synthetic draws two simple test pictures per section with the helpers below and runs them
 through the same pipeline, so the app and the asset test have data before real pictures exist.
@@ -17,8 +18,8 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import json
 import math
+import re
 import shutil
 import sys
 import tempfile
@@ -28,11 +29,11 @@ from pathlib import Path
 import numpy as np
 import potrace
 from PIL import Image, ImageDraw, ImageFilter
+from PIL.PngImagePlugin import PngInfo
 
 TOOL_DIR = Path(__file__).resolve().parent
 REPO_DIR = TOOL_DIR.parent.parent
 ASSETS_DIR = REPO_DIR / "data" / "src" / "main" / "assets" / "pictures"
-CATALOG = ASSETS_DIR / "catalog.json"
 REJECTED_DIR = TOOL_DIR / "rejected"
 
 # The shared picture geometry and the T-rules (PICTURE_GUIDELINES.md section 2).
@@ -53,16 +54,18 @@ SOLID_MAX_SIDE = 140            # T10
 SPECK_MAX = 64                  # T11
 SUPERSAMPLE = 2                 # render scale for anti-aliasing
 
-SECTIONS = [
-    {"id": "animals", "icon": "paw", "order": 0},
-    {"id": "plants", "icon": "leaf", "order": 1},
-    {"id": "various", "icon": "star", "order": 2},
-]
+SECTIONS = ("animals", "plants", "various")
+NAME = re.compile(r"[a-z][a-z0-9_]*")
+SOURCE_KEY = "Source"           # PNG text chunk recording where a picture came from
 SYNTHETIC_SOURCE = "synthetic test picture (prepare.py --synthetic)"
 
 
 class Rejected(Exception):
     """Rules failed; the message (one line per failure) is written next to the rejected file."""
+
+
+class UsageError(Exception):
+    """The command itself is wrong (bad path, section or name); the source file is left alone."""
 
 
 # --- Connected components -------------------------------------------------------------------
@@ -465,32 +468,28 @@ def probe_gaps(line: np.ndarray, centre: np.ndarray) -> list[str]:
 # --- Output ---------------------------------------------------------------------------------
 
 
-def load_catalog() -> dict:
-    if CATALOG.exists():
-        return json.loads(CATALOG.read_text(encoding="utf-8"))
-    return {"version": 1, "sections": SECTIONS, "pictures": []}
+def check_target(section: str, slug: str, replace_synthetic: bool = False) -> None:
+    """Raises UsageError for a bad section or name, or a name already taken."""
+    if section not in SECTIONS and not (ASSETS_DIR / section).is_dir():
+        raise UsageError(f"unknown section '{section}': use {', '.join(SECTIONS)} "
+                         f"(or create {ASSETS_DIR / section} to start a new one)")
+    if not NAME.fullmatch(slug) or slug.endswith("_thumb"):
+        raise UsageError(f"bad picture name '{slug}': lowercase letters, digits and _ only, e.g. cat_01")
+    existing = ASSETS_DIR / section / f"{slug}.png"
+    # --synthetic may overwrite its own pictures (older ones have no source recorded).
+    if existing.exists() and not (replace_synthetic and source_of(existing) in (SYNTHETIC_SOURCE, None)):
+        # Shipped pictures are immutable: saved artworks refer to them by name.
+        raise UsageError(f"'{section}/{slug}' already exists; give the new picture another name (e.g. {slug}_02)")
 
 
-def save_catalog(catalog: dict) -> None:
-    catalog["pictures"].sort(key=lambda p: (section_order(catalog, p["section"]), p["id"]))
-    CATALOG.parent.mkdir(parents=True, exist_ok=True)
-    CATALOG.write_text(json.dumps(catalog, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
-
-
-def section_order(catalog: dict, section: str) -> int:
-    return next((s["order"] for s in catalog["sections"] if s["id"] == section), len(catalog["sections"]))
+def source_of(png: Path) -> str | None:
+    return Image.open(png).info.get(SOURCE_KEY)
 
 
 def prepare(source: Path, section: str, slug: str, provenance: str, replace_synthetic: bool = False) -> Report:
-    """Runs the pipeline and writes the asset, thumbnail and catalog entry; raises Rejected."""
-    catalog = load_catalog()
-    if section not in {s["id"] for s in catalog["sections"]}:
-        raise Rejected(f"unknown section '{section}'; add it to catalog.json first")
+    """Runs the pipeline and writes the picture and its thumbnail; raises Rejected."""
+    check_target(section, slug, replace_synthetic)
     picture_id = f"{section}/{slug}"
-    existing = next((p for p in catalog["pictures"] if p["id"] == picture_id), None)
-    if existing and not (replace_synthetic and existing["source"] == SYNTHETIC_SOURCE):
-        # Shipped pictures are immutable: a changed picture gets a new id.
-        raise Rejected(f"'{picture_id}' is already in the catalog; use a new slug (e.g. {slug}_02)")
 
     gray = load_gray(source)
     ink = despeckle(gray < 128)
@@ -503,20 +502,10 @@ def prepare(source: Path, section: str, slug: str, provenance: str, replace_synt
     out_dir.mkdir(parents=True, exist_ok=True)
     png = out_dir / f"{slug}.png"
     thumb = out_dir / f"{slug}_thumb.webp"
-    Image.fromarray(lum, mode="L").save(png, optimize=True)                     # T1
+    info = PngInfo()
+    info.add_text(SOURCE_KEY, provenance)
+    Image.fromarray(lum, mode="L").save(png, optimize=True, pnginfo=info)       # T1
     Image.fromarray(lum, mode="L").resize(THUMB_SIZE, Image.LANCZOS).save(thumb, "WEBP", quality=85)  # T12
-
-    entry = {
-        "id": picture_id,
-        "section": section,
-        "file": f"{section}/{png.name}",
-        "thumb": f"{section}/{thumb.name}",
-        "difficulty": report.difficulty,
-        "regions": report.regions,
-        "source": provenance,
-    }
-    catalog["pictures"] = [p for p in catalog["pictures"] if p["id"] != picture_id] + [entry]
-    save_catalog(catalog)
 
     size_kb = png.stat().st_size / 1024
     print(f"ok  {picture_id}: {report.regions} regions ({report.difficulty}), line {report.line_width:.1f} px, "
@@ -678,12 +667,12 @@ def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("source", nargs="?", type=Path, help="source image, e.g. inbox/animals/cat_01.png")
+    parser.add_argument("source", nargs="?", type=Path, help="one source image, e.g. tools/pictures/inbox/animals/cat_01.png")
     parser.add_argument("--section", help="animals, plants or various (default: the source's folder)")
     parser.add_argument("--slug", help="picture name (default: the source's file name)")
     parser.add_argument("--source-note", dest="provenance",
                         default=f"chatgpt-image, prompt v1, {datetime.date.today().isoformat()}",
-                        help="provenance recorded in the catalog's source field")
+                        help="where the picture came from; stored in the PNG's metadata")
     parser.add_argument("--synthetic", action="store_true", help="(re)generate the synthetic test pictures")
     args = parser.parse_args()
 
@@ -692,12 +681,16 @@ def main() -> int:
     if args.source is None:
         parser.error("give a source image or --synthetic")
     source = args.source if args.source.exists() else TOOL_DIR / args.source
-    if not source.exists():
-        parser.error(f"{args.source} not found")
+    if not source.is_file():
+        parser.error(f"{args.source} is not an image file (give one picture at a time, not a folder)")
+    if ASSETS_DIR in source.resolve().parents:
+        parser.error(f"{args.source} is already in the app's assets; run the script on the original in the inbox")
     section = args.section or source.parent.name
     slug = args.slug or source.stem
     try:
         prepare(source, section, slug, args.provenance)
+    except UsageError as e:
+        parser.error(str(e))
     except Rejected as e:
         reject(source, section, slug, str(e))
         return 1

@@ -130,7 +130,7 @@ colour-fun/
 │       ├── data/                # Room DB, repositories
 │       └── di/                  # Hilt modules
 ├── app/src/main/assets/
-│   ├── pictures/                # Library line art, thumbnails and catalog.json
+│   ├── pictures/                # Library line art and thumbnails, one folder per section
 │   └── textures/                # Chalk, paper, pencil grain textures
 ├── docs/                        # Design notes, screenshots
 └── README.md

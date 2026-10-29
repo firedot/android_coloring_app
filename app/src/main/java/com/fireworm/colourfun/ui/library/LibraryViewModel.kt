@@ -32,7 +32,7 @@ class LibraryViewModel @Inject constructor(
 ) : ViewModel() {
 
     val uiState: StateFlow<LibraryUiState> = combine(
-        flow { emit(pictures.catalog().bySection().map { (section, list) -> LibrarySection(section, list) }) },
+        flow { emit(pictures.library().bySection().map { (section, list) -> LibrarySection(section, list) }) },
         artworks.observeAll(),
     ) { sections, saved ->
         LibraryUiState(sections, saved.map { SavedPicture(it.id, artworks.thumbnailFile(it.id), it.updatedAt) })

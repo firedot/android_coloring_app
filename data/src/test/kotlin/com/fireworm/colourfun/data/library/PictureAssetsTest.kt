@@ -9,41 +9,41 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Re-checks every catalog entry against the measurable picture rules (PICTURE_GUIDELINES.md): the
- * files exist, 2048 × 1536 8-bit grayscale, no line near the edge, 8–80 regions of at least
- * 1500 px² (6000 for easy pictures), unique ids.
+ * Re-checks every picture in the asset folders against the measurable picture rules
+ * (PICTURE_GUIDELINES.md): only `<name>.png` + `<name>_thumb.webp` pairs, 2048 × 1536 8-bit
+ * grayscale, no line near the edge, 8–80 regions of at least 1500 px².
  */
 class PictureAssetsTest {
 
     private val dir = File("src/main/assets/pictures")
-    private val catalog = PictureCatalog.parse(File(dir, "catalog.json").readText())
+    private val library = PictureLibrary.scan { path -> File(dir, path).list().orEmpty().toList() }
+    private val pictures = library.bySection().flatMap { it.second }
 
     @Test
-    fun `the catalog has pictures in every section`() {
-        assertTrue(catalog.pictures.isNotEmpty())
-        val sectionIds = catalog.sections.map { it.id }
-        assertEquals(sectionIds.toSet().size, sectionIds.size)
-        catalog.sections.forEach { section -> assertTrue("${section.id} is empty", catalog.pictures.any { it.section == section.id }) }
+    fun `every known section has pictures`() {
+        val sections = library.bySection().map { it.first.id }
+        listOf("animals", "plants", "various").forEach { assertTrue("$it is empty", it in sections) }
     }
 
     @Test
-    fun `ids are unique and match their section and files`() {
-        val ids = catalog.pictures.map { it.id }
-        assertEquals("duplicate ids", ids.toSet().size, ids.size)
-        val sections = catalog.sections.map { it.id }.toSet()
-        catalog.pictures.forEach { p ->
-            val slug = p.id.substringAfter('/')
-            assertTrue("${p.id}: unknown section", p.section in sections)
-            assertEquals("${p.id}: id", "${p.section}/$slug", p.id)
-            assertEquals("${p.id}: file", "${p.section}/$slug.png", p.file)
-            assertEquals("${p.id}: thumb", "${p.section}/${slug}_thumb.webp", p.thumb)
-            assertTrue("${p.id}: missing thumbnail", File(dir, p.thumb).isFile)
+    fun `the folders hold only pictures and their thumbnails`() {
+        dir.listFiles().orEmpty().forEach { assertTrue("${it.name}: only section folders belong here", it.isDirectory) }
+        dir.listFiles().orEmpty().forEach { section ->
+            val files = section.list().orEmpty().toSet()
+            files.forEach { name ->
+                val picture = name.removeSuffix("_thumb.webp").removeSuffix(".png")
+                assertTrue("${section.name}/$name: expected <name>.png or <name>_thumb.webp", name == "$picture.png" || name == "${picture}_thumb.webp")
+                assertTrue("${section.name}/$name: name must be lowercase letters, digits and _", NAME.matches(picture))
+                assertTrue("${section.name}/$picture: missing PNG", "$picture.png" in files)
+                assertTrue("${section.name}/$picture: missing thumbnail", "${picture}_thumb.webp" in files)
+            }
         }
     }
 
     @Test
     fun `every picture follows the rules`() {
-        catalog.pictures.forEach { p ->
+        assertTrue(pictures.isNotEmpty())
+        pictures.forEach { p ->
             val image = checkNotNull(ImageIO.read(File(dir, p.file))) { "${p.id}: unreadable" }
             assertEquals("${p.id}: 8-bit grayscale without alpha", BufferedImage.TYPE_BYTE_GRAY, image.type)
             assertEquals("${p.id}: width", WIDTH, image.width)
@@ -54,9 +54,7 @@ class PictureAssetsTest {
 
             val regions = RegionLabeler.label(alpha, WIDTH, HEIGHT).regions
             assertTrue("${p.id}: ${regions.size} regions", regions.size in MIN_REGIONS..MAX_REGIONS)
-            assertEquals("${p.id}: catalog region count", regions.size, p.regions)
-            val minimum = if (p.difficulty == Difficulty.Easy) MIN_AREA_EASY else MIN_AREA
-            regions.forEach { r -> assertTrue("${p.id}: region at ${r.bounds} = ${r.area} px²", r.area >= minimum) }
+            regions.forEach { r -> assertTrue("${p.id}: region at ${r.bounds} = ${r.area} px²", r.area >= MIN_AREA) }
         }
     }
 
@@ -85,6 +83,6 @@ class PictureAssetsTest {
         const val MIN_REGIONS = 8
         const val MAX_REGIONS = 80
         const val MIN_AREA = 1500
-        const val MIN_AREA_EASY = 6000
+        val NAME = Regex("[a-z][a-z0-9_]*")
     }
 }

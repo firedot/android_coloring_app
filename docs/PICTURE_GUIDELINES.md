@@ -36,8 +36,8 @@ measurable ones and the CI asset test re-checks them. A person checks the rest b
 | T12 | Thumbnail | 384 × 288 WebP, generated | script |
 | T13 | File size | Typically 50–200 KB per PNG | review |
 
-Difficulty is derived from T8 and T7: **easy** 8–25 regions, all ≥ 6000 px²; **medium** up to 50
-regions (or ≤ 25 with smaller ones); **hard** 51–80.
+`prepare.py` prints a difficulty rating from T8 and T7 as a guide (not stored): **easy** 8–25
+regions, all ≥ 6000 px²; **medium** up to 50 regions (or ≤ 25 with smaller ones); **hard** 51–80.
 
 ---
 
@@ -71,7 +71,8 @@ regions (or ≤ 25 with smaller ones); **hard** 51–80.
 - Aim for ≥ 12 pictures per section, with a mix of easy and medium.
 
 **Provenance**
-- Record the generator and prompt version in the catalog's `source` field.
+- Record the generator and prompt version with `--source-note`; `prepare.py` stores it in the
+  PNG's `Source` text chunk.
 - Check that the image tool's terms allow commercial use of outputs.
 
 ---
@@ -80,12 +81,15 @@ regions (or ≤ 25 with smaller ones); **hard** 51–80.
 
 ```
 1. Generate in ChatGPT with the prompt below (landscape, 1536 × 1024).
-2. Save the download to tools/pictures/inbox/<section>/<slug>.png
-3. python tools/pictures/prepare.py inbox/<section>/<slug>.png --section <section>
-      → normalizes, re-renders lines, validates, writes assets + thumbnail + catalog entry
-      → on failure: moves the file to rejected/ with a reason (e.g. "region 14 = 620 px²")
+2. Save the download to tools/pictures/inbox/<section>/<name>.png (lowercase, e.g. cat_01)
+3. tools/pictures/.venv/Scripts/python tools/pictures/prepare.py tools/pictures/inbox/<section>/<name>.png
+      → one image file at a time, never a folder or a file inside data/
+      → normalizes, re-renders lines, validates, writes <name>.png + <name>_thumb.webp into
+        data/src/main/assets/pictures/<section>/; the app finds them there, no index to edit
+      → on failure: moves the file to rejected/<section>/ with every failed rule in <name>.txt;
+        fix it, move it back to the inbox and run again
 4. Review the output PNG at 100 % zoom using the checklist (section 6).
-5. Commit the asset, thumbnail and catalog.json change.
+5. Build (./gradlew installDebug), then commit the PNG and the thumbnail.
 ```
 
 Common fixes when a picture is rejected: ask ChatGPT to "remove the small details", "make all
@@ -182,4 +186,4 @@ For an easy variant, add "very simple, for a 3-year-old, at most 15 areas" to th
 - [ ] No near-gaps where a child would expect a closed area (open the PNG at 100 %).
 - [ ] No recognizable copyrighted character or brand.
 - [ ] Style and line weight match the existing pictures in the section.
-- [ ] Catalog entry has the right section, difficulty and source.
+- [ ] The picture is in the right section folder and its name is new.

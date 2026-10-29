@@ -223,7 +223,7 @@ private fun SectionTab(section: Section, selected: Boolean, onClick: () -> Unit)
     }
 }
 
-/** Icons named in catalog.json; an unknown one falls back to the star. */
+/** Icons from [Section.of]; an unknown one falls back to the star. */
 @DrawableRes
 private fun Section.iconRes(): Int = when (icon) {
     "paw" -> R.drawable.ic_section_paw

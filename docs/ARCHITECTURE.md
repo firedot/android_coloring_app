@@ -38,7 +38,7 @@ The procedural generator from earlier drafts has been **removed**. Pictures are 
 | Module | Type | Contents | Depends on |
 |---|---|---|---|
 | `:drawing` | Android library | Document, viewport, layers, brushes, fill, region labeling, history, `DrawingEngine` | nothing project-internal |
-| `:data` | Android library | Picture catalog, Room DB, artwork file store, MediaStore export, settings (DataStore) | `:drawing` (snapshot types, `RegionLabeler` for asset tests) |
+| `:data` | Android library | Picture library, Room DB, artwork file store, MediaStore export, settings (DataStore) | `:drawing` (snapshot types, `RegionLabeler` for asset tests) |
 | `:app` | Android application | Compose UI, floating controls, ViewModels, navigation, Hilt modules, sound/haptics | all of the above |
 
 Rules:
@@ -64,7 +64,7 @@ drawing/src/main/kotlin/com/example/colourfun/drawing/
 └── DrawingEngine.kt
 
 data/src/main/kotlin/com/example/colourfun/data/
-├── library/       PictureCatalog (parses catalog.json), Picture, Section, PictureRepository
+├── library/       PictureLibrary (scans the asset folders), Picture, Section, PictureRepository
 ├── db/            ColourFunDatabase, ArtworkEntity, ArtworkDao
 ├── files/         ArtworkFileStore (outline copy, paint PNG, thumbnail)
 ├── export/        GalleryExporter (MediaStore)
@@ -72,7 +72,6 @@ data/src/main/kotlin/com/example/colourfun/data/
 └── ArtworkRepository.kt
 
 data/src/main/assets/pictures/
-├── catalog.json
 ├── animals/       cat_01.png, cat_01_thumb.webp, ...
 ├── plants/
 └── various/
@@ -315,44 +314,33 @@ paper before returning.
 
 ## 5. Picture library **(refines README — replaces the procedural generator)**
 
-### 5.1 Catalog
+### 5.1 Library folders
 
-Pictures are bundled in `:data` under `assets/pictures/`. `catalog.json` is the single index:
+Pictures are bundled in `:data` under `assets/pictures/`. The folders are the index; there is no
+catalog file to keep in sync:
 
-```json
-{
-  "version": 1,
-  "sections": [
-    { "id": "animals", "icon": "paw",  "order": 0 },
-    { "id": "plants",  "icon": "leaf", "order": 1 },
-    { "id": "various", "icon": "star", "order": 2 }
-  ],
-  "pictures": [
-    {
-      "id": "animals/cat_01",
-      "section": "animals",
-      "file": "animals/cat_01.png",
-      "thumb": "animals/cat_01_thumb.webp",
-      "difficulty": "easy",
-      "regions": 18,
-      "source": "chatgpt-image, prompt v1, 2026-10-29"
-    }
-  ]
-}
+```
+assets/pictures/<section>/<name>.png          the picture (id "section/name")
+assets/pictures/<section>/<name>_thumb.webp   its thumbnail
 ```
 
-- Sections are data, not code, so adding "vehicles" later means editing JSON and adding files.
-- Sections are shown by icon (paw, leaf, star), with no text, consistent with the README's
-  minimal-text rule.
-- `difficulty` (`easy`, `medium`, `hard`) is derived from the region count and the smallest region
-  by `prepare.py` and is available for later sorting or filtering.
+- `PictureRepository` lists the folders once (`AssetManager.list`, milliseconds even for
+  thousands of files); the library grid loads thumbnails lazily as it scrolls.
+- Sections are the folder names. Their icon and order come from a small table in `Section.of`
+  (animals → paw, plants → leaf, various → star); a new folder such as "vehicles" shows up after
+  them with the star icon until it gets its own entry.
+- Sections are shown by icon, with no text, consistent with the README's minimal-text rule.
+- Pictures within a section are sorted by name.
+- `prepare.py` records where a picture came from in the PNG's own `Source` text chunk. It also
+  prints a difficulty rating (`easy`, `medium`, `hard`, from the region count and the smallest
+  region) as a guide; the app does not store or use it.
 - **Picture ids and files are immutable once shipped.** A changed picture gets a new id
   (`cat_01` → `cat_02`). Saved artworks also keep their own outline copy (§7), so they stay valid.
 
 ### 5.2 Asset pipeline
 
 ```
-source image (ChatGPT, any size) ──▶ tools/pictures/prepare.py ──▶ 2048×1536 PNG + thumb + catalog entry
+source image (ChatGPT, any size) ──▶ tools/pictures/prepare.py ──▶ <section>/<name>.png + <name>_thumb.webp
                                        │
                                        ├─ grayscale → threshold → despeckle (remove blobs < 64 px)
                                        ├─ fit into 4:3 with white margin
@@ -581,7 +569,7 @@ It guards settings, save to device and share.
 
 | Area | Kind | What |
 |---|---|---|
-| Picture assets | JVM unit (ImageIO + `RegionLabeler`) | Every catalog entry: file exists, 2048×1536 grayscale, edge margin, region count and minimum size, ids unique, thumbnails present. Runs in CI over `assets/pictures/` |
+| Picture assets | JVM unit (ImageIO + `RegionLabeler`) | Every picture in the folders: only `<name>.png` + `<name>_thumb.webp` pairs with valid names, 2048×1536 grayscale, edge margin, region count and minimum size, every known section non-empty. Runs in CI over `assets/pictures/` |
 | Region labeling | JVM | Synthetic outlines: diagonal gaps don't merge regions, nested shapes, border region, side margins join the background |
 | Viewport | JVM | Fit scale per aspect, focal-point zoom, pan clamping, doc↔screen round trip |
 | Document sizing | JVM | `W` for 4:3, 16:10, 20:9 and 21:9 screens; low-RAM scale; letterbox cases |
@@ -622,7 +610,7 @@ on a low-end API 26 device.
 | Floating controls + palette + pipette | `ExpandableControl`, splat/brush icons, `Palette.kt`, `ColorSampler` |
 | Flood fill | `RegionLabeler`, `RegionMap`, `FillCommand`, stay-inside clipping |
 | All 7 mediums | `brushes/*`, merge modes, screenshot tests |
-| Picture library | `prepare.py`, `catalog.json`, `PictureRepository`, `LibraryScreen`, asset test |
+| Picture library | `prepare.py`, `PictureLibrary`, `PictureRepository`, `LibraryScreen`, asset test |
 | Save with parent gate | Persistence, autosave, "my pictures", `GalleryExporter`, `ParentGateDialog` |
 
 Build the **layered canvas and zoom before the pen**. Stroke clipping, fill, the eraser and touch

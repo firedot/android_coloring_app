@@ -13,7 +13,6 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
-import com.fireworm.colourfun.data.library.Difficulty
 import com.fireworm.colourfun.data.library.Picture
 import com.fireworm.colourfun.data.library.Section
 import com.fireworm.colourfun.ui.library.LibraryContent
@@ -119,9 +118,6 @@ class LibraryScreenTest {
         section = id.substringBefore('/'),
         file = "$id.png",
         thumb = "${id}_thumb.webp",
-        difficulty = Difficulty.Easy,
-        regions = 10,
-        source = "test",
     )
 
     private companion object {
