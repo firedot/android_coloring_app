@@ -3,7 +3,7 @@ package com.fireworm.colourfun.domain
 import android.graphics.Canvas
 import android.net.Uri
 import androidx.core.graphics.createBitmap
-import com.fireworm.colourfun.data.artwork.ArtworkRepository
+import com.fireworm.colourfun.data.ArtworkRepository
 import com.fireworm.colourfun.data.export.GalleryExporter
 import com.fireworm.colourfun.drawing.document.Document
 import java.text.SimpleDateFormat

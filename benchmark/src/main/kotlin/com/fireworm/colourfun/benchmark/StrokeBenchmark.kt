@@ -55,9 +55,9 @@ class StrokeBenchmark {
         repeat(STROKES) { drawWave(it) }
     }
 
-    /** The new-animal button is disabled while the picture is generated. */
+    /** The canvas appears once the picture is decoded and labelled. */
     private fun MacrobenchmarkScope.waitForPicture() {
-        device.wait(Until.hasObject(By.desc("New animal").enabled(true)), 15_000)
+        device.wait(Until.hasObject(By.desc("Picture to colour")), 15_000)
     }
 
     /** A sine wave across the middle of the screen, where the picture is in either orientation. */

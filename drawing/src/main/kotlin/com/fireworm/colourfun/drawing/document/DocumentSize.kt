@@ -1,18 +1,25 @@
 package com.fireworm.colourfun.drawing.document
 
-/** Size of the fixed logical drawing document. All drawing sizes are in these pixels. */
-data class DocumentSize(val width: Int, val height: Int) {
-    /** Scale relative to the 2048×1536 base document that line art is authored in. */
-    val scale: Float get() = width / BASE_WIDTH.toFloat()
+import kotlin.math.roundToInt
+
+/**
+ * The drawing document: [width] × [height] pixels with the picture area centred in it. All drawing
+ * sizes are in these pixels. Pure Kotlin.
+ *
+ * @param scale of the picture relative to its 2048 × 1536 source: 1, or 0.75 on low-RAM devices.
+ * Brush sizes and line widths are multiplied by it.
+ */
+data class DocumentSize(val width: Int, val height: Int, val scale: Float = 1f) {
+    val pictureWidth: Int get() = (PICTURE_WIDTH * scale).roundToInt()
+    val pictureHeight: Int get() = (PICTURE_HEIGHT * scale).roundToInt()
+
+    /** Left edge of the picture area; the side margins are blank paper. */
+    val pictureLeft: Int get() = (width - pictureWidth) / 2
+    val pictureTop: Int get() = (height - pictureHeight) / 2
 
     companion object {
-        const val BASE_WIDTH = 2048
-        const val BASE_HEIGHT = 1536
-        private const val LOW_RAM_SCALE = 0.75f
-
-        val Standard = DocumentSize(BASE_WIDTH, BASE_HEIGHT)
-        val LowRam = DocumentSize((BASE_WIDTH * LOW_RAM_SCALE).toInt(), (BASE_HEIGHT * LOW_RAM_SCALE).toInt())
-
-        fun forDevice(isLowRamDevice: Boolean): DocumentSize = if (isLowRamDevice) LowRam else Standard
+        /** Every library picture is exactly this size. */
+        const val PICTURE_WIDTH = 2048
+        const val PICTURE_HEIGHT = 1536
     }
 }

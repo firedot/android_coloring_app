@@ -11,7 +11,7 @@ import com.fireworm.colourfun.drawing.brushes.StrokePoint
 import com.fireworm.colourfun.drawing.document.Document
 import com.fireworm.colourfun.drawing.document.DocumentSize
 import com.fireworm.colourfun.drawing.history.History
-import com.fireworm.colourfun.drawing.layers.OutlineRasterizer
+import com.fireworm.colourfun.drawing.layers.OutlineLayer
 import java.nio.ByteBuffer
 import kotlin.math.floor
 import kotlinx.coroutines.launch
@@ -30,13 +30,14 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class RegionFillTest {
 
-    private val size = DocumentSize(512, 384)
+    /** A quarter-scale 20:9 document: the 512 × 384 picture with blank margins on both sides. */
+    private val size = DocumentSize(854, 384, scale = 0.25f)
     private val scale = size.scale
     private val outlineWidth = TestOutline.STROKE_WIDTH * scale
     private val dispatcher = StandardTestDispatcher()
     private val scope = TestScope(dispatcher)
 
-    private val outline = OutlineRasterizer.rasterize(TestOutline.lineArt, size)
+    private val outline = OutlineLayer.decode(TestOutline.png, size)
     private val regions = RegionMap.build(outline, outlineWidth)
     private val engine = DrawingEngine(
         Document(size, outline),
@@ -44,20 +45,37 @@ class RegionFillTest {
         History(scope = scope, compressDispatcher = dispatcher),
     )
 
-    private val headX = TestOutline.HEAD_CENTER.x * scale
-    private val headY = TestOutline.HEAD_CENTER.y * scale
+    private val headX = TestOutline.docX(size, TestOutline.HEAD_CENTER.x)
+    private val headY = TestOutline.docY(size, TestOutline.HEAD_CENTER.y)
     private val head = regions.regionAt(headX.toInt(), headY.toInt())
 
     @Test
     fun `the test outline has separate background, body, head and ear regions`() {
         assertNotEquals(0, head)
         assertTrue(regions.region(regions.regionAt(2, 2)).isBackground)
-        val body = regions.regionAt(headX.toInt(), (TestOutline.BODY_CENTER.y * scale + 40).toInt())
+        val body = regions.regionAt(headX.toInt(), TestOutline.docY(size, TestOutline.BODY_CENTER.y + 160).toInt())
         val leftEar = regions.regionAt(
-            (TestOutline.LEFT_EAR_CENTER.x * scale).toInt(),
-            ((TestOutline.LEFT_EAR_CENTER.y - TestOutline.EAR_RY / 2) * scale).toInt(),
+            TestOutline.docX(size, TestOutline.LEFT_EAR_CENTER.x).toInt(),
+            TestOutline.docY(size, TestOutline.LEFT_EAR_CENTER.y - TestOutline.EAR_RY / 2).toInt(),
         )
         assertEquals(4, setOf(regions.regionAt(2, 2), head, body, leftEar).size)
+    }
+
+    @Test
+    fun `the side margins belong to the background`() {
+        val background = regions.regionAt(2, 2)
+        assertEquals(background, regions.regionAt(size.width - 3, size.height / 2))
+        assertEquals(background, regions.regionAt(size.pictureLeft + 2, size.pictureTop + 2))
+    }
+
+    @Test
+    fun `filling the background colours the side margins too`() {
+        fill(2f, 2f, Color.RED)
+
+        val paint = engine.document.paint.bitmap
+        assertEquals(Color.RED, paint.getPixel(1, size.height / 2))
+        assertEquals(Color.RED, paint.getPixel(size.width - 2, size.height / 2))
+        assertNotEquals(Color.RED, paint.getPixel(headX.toInt(), headY.toInt()))
     }
 
     @Test
@@ -98,7 +116,7 @@ class RegionFillTest {
 
     @Test
     fun `a tap on the outline fills the nearest region`() {
-        val onHeadLine = (TestOutline.HEAD_CENTER.y + TestOutline.HEAD_RADIUS) * scale - 0.5f
+        val onHeadLine = TestOutline.docY(size, TestOutline.HEAD_CENTER.y + TestOutline.HEAD_RADIUS) - 0.5f
         val expected = regions.regionNear(headX, onHeadLine)
         assertNotEquals(0, expected)
 

@@ -5,11 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fireworm.colourfun.data.settings.Settings
 import com.fireworm.colourfun.data.settings.SettingsRepository
+import com.fireworm.colourfun.domain.AutosaveUseCase
 import com.fireworm.colourfun.domain.ExportToGalleryUseCase
-import com.fireworm.colourfun.domain.LoadPictureUseCase
-import com.fireworm.colourfun.domain.NewPictureUseCase
-import com.fireworm.colourfun.domain.Picture
-import com.fireworm.colourfun.domain.SaveArtworkUseCase
+import com.fireworm.colourfun.domain.LoadArtworkUseCase
+import com.fireworm.colourfun.domain.NewArtworkUseCase
+import com.fireworm.colourfun.domain.PreparedArtwork
 import com.fireworm.colourfun.drawing.DrawingConfig
 import com.fireworm.colourfun.drawing.DrawingEngine
 import com.fireworm.colourfun.drawing.brushes.BrushSize
@@ -18,14 +18,12 @@ import com.fireworm.colourfun.drawing.brushes.Medium
 import com.fireworm.colourfun.drawing.document.Document
 import com.fireworm.colourfun.drawing.history.History
 import com.fireworm.colourfun.drawing.regions.RegionMaskCache
-import com.fireworm.colourfun.generator.LineArt
 import com.fireworm.colourfun.ui.palette.DefaultColor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -110,7 +108,6 @@ sealed interface ColoringEvent {
     data class TapAt(val x: Float, val y: Float) : ColoringEvent
     data object Undo : ColoringEvent
     data object Redo : ColoringEvent
-    data object NewAnimal : ColoringEvent
 
     /** The screen is going away (onStop): save now rather than after the autosave delay. */
     data object Save : ColoringEvent
@@ -129,17 +126,17 @@ sealed interface ColoringEffect {
  * Owns the drawing engine for the current picture, so it survives configuration changes.
  * Raw stroke input bypasses this ViewModel and goes to the engine directly.
  *
- * The picture is saved 2 s after the last change and on [ColoringEvent.Save]. A new picture gets its
- * artwork id on the first save, so untouched animals never reach the gallery. Only that id is kept
- * in [savedState]; after process death the picture is restored from its files.
+ * The artwork is saved 2 s after the last change and on [ColoringEvent.Save]. A new artwork gets its
+ * id on the first save, so untouched pictures never reach "my pictures". Only that id is kept in
+ * [savedState]; after process death the artwork is restored from its files.
  */
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
 class CanvasViewModel @Inject constructor(
     private val config: DrawingConfig,
-    private val newPicture: NewPictureUseCase,
-    private val loadPicture: LoadPictureUseCase,
-    private val saveArtwork: SaveArtworkUseCase,
+    private val newArtwork: NewArtworkUseCase,
+    private val loadArtwork: LoadArtworkUseCase,
+    private val autosave: AutosaveUseCase,
     private val exportToGallery: ExportToGalleryUseCase,
     private val settings: SettingsRepository,
     private val savedState: SavedStateHandle,
@@ -156,10 +153,8 @@ class CanvasViewModel @Inject constructor(
     private val _effects = Channel<ColoringEffect>(Channel.BUFFERED)
     val effects: Flow<ColoringEffect> = _effects.receiveAsFlow()
 
-    private var pictureJob: Job? = null
-
-    /** The line art being coloured, saved as `outline.json`. */
-    private var lineArt: LineArt? = null
+    /** The artwork being coloured. */
+    private var artwork: PreparedArtwork? = null
 
     /** `null` until the current picture is first saved. Also the navigation argument. */
     private var artworkId: String?
@@ -175,12 +170,13 @@ class CanvasViewModel @Inject constructor(
     private var toolBeforePipette: Tool = Tool.Pen
 
     init {
-        pictureJob = viewModelScope.launch {
+        viewModelScope.launch {
             restore(settings.settings.first())
             rememberToolAndColor()
-            val picture = artworkId?.let { loadPicture(it) }
-            if (picture == null) artworkId = null
-            show(picture ?: newPicture())
+            val restored = artworkId?.let { loadArtwork(it) }
+            if (restored == null) artworkId = null
+            // Until the picture library exists, every new artwork uses the bundled test picture.
+            show(restored ?: newArtwork(TEST_PICTURE_ID))
         }
         viewModelScope.launch {
             settings.settings.map { it.stayInsideLines }.distinctUntilChanged().collect { stayInside ->
@@ -214,45 +210,29 @@ class CanvasViewModel @Inject constructor(
             is ColoringEvent.TapAt -> tapAt(event.x, event.y)
             ColoringEvent.Undo -> _engine.value?.undo()
             ColoringEvent.Redo -> _engine.value?.redo()
-            ColoringEvent.NewAnimal -> newAnimal()
             ColoringEvent.Save -> save()
             ColoringEvent.ExportToGallery -> export()
         }
     }
 
-    /** Replaces the picture with a newly generated animal; the old one stays on screen until it is ready. */
-    private fun newAnimal() {
-        save()
-        pictureJob?.cancel()
-        _uiState.update { it.copy(loading = true) }
-        pictureJob = viewModelScope.launch {
-            val picture = newPicture()
-            // Anything drawn on the old picture while the new one was generated.
-            save()
-            artworkId = null
-            show(picture)
-        }
-    }
-
-    private fun show(picture: Picture) {
-        _engine.value?.cancelStroke()
-        val document = Document(config.documentSize, picture.outline)
-        picture.paint?.let(document.paint::load)
-        lineArt = picture.lineArt
+    private fun show(prepared: PreparedArtwork) {
+        val document = Document(prepared.size, prepared.outline)
+        prepared.paint?.let(document.paint::load)
+        artwork = prepared
         savedEdits = 0
         val history = History(budgetBytes = config.historyBudgetBytes, scope = viewModelScope)
-        _engine.value = DrawingEngine(document, RegionMaskCache(picture.regions), history)
+        _engine.value = DrawingEngine(document, RegionMaskCache(prepared.regions), history)
         _uiState.update { it.copy(loading = false) }
     }
 
-    /** Saves the current picture if it changed since the last save. */
+    /** Saves the current artwork if it changed since the last save. */
     private fun save() {
         val engine = _engine.value ?: return
-        val art = lineArt ?: return
+        val current = artwork ?: return
         val edits = engine.edits.value
         if (edits == savedEdits) return
         val id = artworkId ?: UUID.randomUUID().toString().also { artworkId = it }
-        saveArtwork(id, art, engine.document)
+        autosave(id, current, engine.document)
         savedEdits = edits
     }
 
@@ -329,6 +309,9 @@ class CanvasViewModel @Inject constructor(
     companion object {
         /** Navigation argument and saved-state key. */
         const val ARTWORK_ID = "artworkId"
+
+        /** The bundled test picture, until the picture library replaces it. */
+        private const val TEST_PICTURE_ID = "test/cat"
 
         private const val AUTOSAVE_DELAY_MS = 2_000L
         private const val SETTINGS_DELAY_MS = 500L

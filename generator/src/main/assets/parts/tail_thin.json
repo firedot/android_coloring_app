@@ -1,9 +1,0 @@
-{
-  "id": "tail_thin",
-  "category": "tail",
-  "compatibleWith": ["quadruped"],
-  "paths": ["M-20,18 C55,28 120,-10 128,-95 C130,-122 100,-126 94,-100 C86,-45 50,-20 -20,-16 Z"],
-  "zOrder": 0,
-  "mirrorable": true,
-  "scaleRange": [0.8, 1.2]
-}

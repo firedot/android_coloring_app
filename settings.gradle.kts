@@ -25,5 +25,4 @@ rootProject.name = "colour-fun"
 include(":app")
 include(":drawing")
 include(":data")
-include(":generator")
 include(":benchmark")

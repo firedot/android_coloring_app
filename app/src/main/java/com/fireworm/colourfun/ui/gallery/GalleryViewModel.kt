@@ -2,7 +2,7 @@ package com.fireworm.colourfun.ui.gallery
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.fireworm.colourfun.data.artwork.ArtworkRepository
+import com.fireworm.colourfun.data.ArtworkRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject

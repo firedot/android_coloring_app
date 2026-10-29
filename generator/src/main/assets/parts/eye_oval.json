@@ -1,8 +1,0 @@
-{
-  "id": "eye_oval",
-  "category": "eye",
-  "compatibleWith": ["quadruped"],
-  "paths": ["M-26,0 A26,36 0 1,0 26,0 A26,36 0 1,0 -26,0 Z"],
-  "zOrder": 40,
-  "scaleRange": [0.85, 1.15]
-}

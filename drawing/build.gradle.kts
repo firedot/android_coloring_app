@@ -24,8 +24,6 @@ android {
 }
 
 dependencies {
-    api(project(":generator"))
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
 

@@ -22,7 +22,7 @@ internal object FixedStroke {
     const val HEIGHT = 240
 
     /** Full base width so brush sizes are at their real scale; only the left part is used. */
-    private val size = DocumentSize(DocumentSize.BASE_WIDTH, HEIGHT)
+    private val size = DocumentSize(DocumentSize.PICTURE_WIDTH, HEIGHT)
 
     /**
      * 64 points 8 ms apart along one S-curve, then the finger rests on the last point for a few

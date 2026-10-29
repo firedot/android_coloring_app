@@ -30,7 +30,6 @@ room {
 }
 
 dependencies {
-    api(project(":generator"))
     api(project(":drawing"))
 
     implementation(libs.androidx.core.ktx)

@@ -29,7 +29,7 @@ import org.robolectric.annotation.GraphicsMode
 class DrawingEngineHistoryTest {
 
     // A small document keeps full-bitmap snapshots cheap; the pipeline is size-independent.
-    private val size = DocumentSize(512, 384)
+    private val size = DocumentSize(512, 384, scale = 0.25f)
     private val dispatcher = StandardTestDispatcher()
     private val scope = TestScope(dispatcher)
 

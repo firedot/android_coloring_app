@@ -1,9 +1,0 @@
-{
-  "id": "head_wide",
-  "category": "head",
-  "compatibleWith": ["quadruped"],
-  "paths": ["M-175,0 A175,135 0 1,0 175,0 A175,135 0 1,0 -175,0 Z"],
-  "anchors": { "ear_left": [-110, -85], "eye_left": [-65, -20], "nose": [0, 45] },
-  "zOrder": 30,
-  "scaleRange": [0.7, 1.4]
-}

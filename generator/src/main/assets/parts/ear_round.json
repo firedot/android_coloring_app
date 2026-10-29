@@ -1,8 +1,0 @@
-{
-  "id": "ear_round",
-  "category": "ear",
-  "compatibleWith": ["quadruped"],
-  "paths": ["M-77,-55 A62,72 0 1,0 47,-55 A62,72 0 1,0 -77,-55 Z", "M-47,-64 A32,40 0 1,0 17,-64 A32,40 0 1,0 -47,-64 Z"],
-  "zOrder": 25,
-  "scaleRange": [0.85, 1.15]
-}

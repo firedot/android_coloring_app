@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +40,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -119,24 +120,6 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
         }
     }
 
-    val canvas = @Composable { modifier: Modifier ->
-        Box(modifier) {
-            engine?.let { engine: DrawingEngine ->
-                DrawingSurface(
-                    engine = engine,
-                    tool = uiState.tool,
-                    color = uiState.color,
-                    stayInsideLines = uiState.stayInsideLines,
-                    onTap = { x, y -> onEvent(ColoringEvent.TapAt(x, y)) },
-                    modifier = Modifier.fillMaxSize(),
-                    onStrokeActiveChange = { active -> frameTimeLogger?.setActive(active) },
-                    onFrameDrawn = { dirty -> frameTimeLogger?.onFrameDrawn(dirty) },
-                )
-            }
-            if (uiState.loading) CircularProgressIndicator(Modifier.align(Alignment.Center).size(64.dp))
-            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
-        }
-    }
     val palette = @Composable { vertical: Boolean, modifier: Modifier ->
         SpectrumPalette(
             selected = uiState.color,
@@ -161,84 +144,98 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
             onSelect = { onEvent(ColoringEvent.SelectSize(it)) },
         )
     }
+    val gallery = @Composable { modifier: Modifier ->
+        GalleryButton(modifier) {
+            feedback(Sound.Tap)
+            onOpenGallery()
+        }
+    }
 
+    // The canvas fills the whole screen, under the system bars and cutouts; the controls float on
+    // top, inset by the safe area. Letterboxed screens show the backdrop around the document.
     Surface(modifier = Modifier.fillMaxSize(), color = Letterbox) {
-        BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
-            // The picture is 4:3, so the palette and tools go along the long edges of the screen.
-            if (maxWidth >= maxHeight) {
-                Row(Modifier.fillMaxSize()) {
-                    Column(
-                        modifier = Modifier.fillMaxHeight().padding(EdgePadding),
-                        verticalArrangement = Arrangement.spacedBy(EdgePadding),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        NewAnimalButton(Modifier.size(width = 120.dp, height = 64.dp), enabled = !uiState.loading) {
-                            onEvent(ColoringEvent.NewAnimal)
-                        }
-                        GalleryButton(Modifier.size(width = 120.dp, height = HistoryButtonSize)) {
-                            feedback(Sound.Tap)
-                            onOpenGallery()
-                        }
-                        palette(true, Modifier.weight(1f))
-                        Row(horizontalArrangement = Arrangement.spacedBy(EdgePadding)) {
-                            HistoryButtons(uiState, onEvent)
-                        }
-                    }
-                    canvas(Modifier.weight(1f).fillMaxHeight())
-                    Column(
-                        modifier = Modifier.fillMaxHeight().padding(EdgePadding),
-                        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        tools(true)
-                        sizes()
-                        Row(horizontalArrangement = Arrangement.spacedBy(EdgePadding)) { parentButtons() }
-                    }
-                }
-            } else {
-                Column(Modifier.fillMaxSize()) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(EdgePadding),
-                        verticalArrangement = Arrangement.spacedBy(EdgePadding),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        tools(false)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(EdgePadding),
-                            verticalAlignment = Alignment.CenterVertically,
+        Box(Modifier.fillMaxSize()) {
+            val canvasDescription = stringResource(R.string.canvas)
+            engine?.let { engine: DrawingEngine ->
+                DrawingSurface(
+                    engine = engine,
+                    tool = uiState.tool,
+                    color = uiState.color,
+                    stayInsideLines = uiState.stayInsideLines,
+                    onTap = { x, y -> onEvent(ColoringEvent.TapAt(x, y)) },
+                    modifier = Modifier.fillMaxSize().semantics { contentDescription = canvasDescription },
+                    onStrokeActiveChange = { active -> frameTimeLogger?.setActive(active) },
+                    onFrameDrawn = { dirty -> frameTimeLogger?.onFrameDrawn(dirty) },
+                )
+            }
+            if (uiState.loading) CircularProgressIndicator(Modifier.align(Alignment.Center).size(64.dp))
+
+            BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
+                if (maxWidth >= maxHeight) {
+                    Row(Modifier.fillMaxSize()) {
+                        Column(
+                            modifier = Modifier.fillMaxHeight().padding(EdgePadding),
+                            verticalArrangement = Arrangement.spacedBy(EdgePadding),
+                            horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
+                            gallery(Modifier.size(width = 120.dp, height = HistoryButtonSize))
+                            palette(true, Modifier.weight(1f))
+                            Row(horizontalArrangement = Arrangement.spacedBy(EdgePadding)) {
+                                HistoryButtons(uiState, onEvent)
+                            }
+                        }
+                        Spacer(Modifier.weight(1f))
+                        Column(
+                            modifier = Modifier.fillMaxHeight().padding(EdgePadding),
+                            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            tools(true)
                             sizes()
-                            Spacer(Modifier.weight(1f))
-                            HistoryButtons(uiState, onEvent)
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(EdgePadding),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            GalleryButton(Modifier.size(width = 72.dp, height = HistoryButtonSize)) {
-                                feedback(Sound.Tap)
-                                onOpenGallery()
-                            }
-                            NewAnimalButton(Modifier.size(width = 112.dp, height = 64.dp), enabled = !uiState.loading) {
-                                onEvent(ColoringEvent.NewAnimal)
-                            }
-                            Spacer(Modifier.weight(1f))
-                            parentButtons()
+                            Row(horizontalArrangement = Arrangement.spacedBy(EdgePadding)) { parentButtons() }
                         }
                     }
-                    canvas(Modifier.weight(1f).fillMaxWidth())
-                    palette(false, Modifier.fillMaxWidth().padding(EdgePadding))
+                } else {
+                    // Only reachable where the system ignores the landscape lock (large screens, Android 16+).
+                    Column(Modifier.fillMaxSize()) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(EdgePadding),
+                            verticalArrangement = Arrangement.spacedBy(EdgePadding),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            tools(false)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(EdgePadding),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                sizes()
+                                Spacer(Modifier.weight(1f))
+                                HistoryButtons(uiState, onEvent)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(EdgePadding),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                gallery(Modifier.size(width = 72.dp, height = HistoryButtonSize))
+                                Spacer(Modifier.weight(1f))
+                                parentButtons()
+                            }
+                        }
+                        Spacer(Modifier.weight(1f))
+                        palette(false, Modifier.fillMaxWidth().padding(EdgePadding))
+                    }
                 }
             }
+            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).safeDrawingPadding())
         }
     }
 }
 
 /** The sound for a child's action, or `null` for events that are not taps. */
 private fun soundFor(event: ColoringEvent, tool: Tool): Sound? = when (event) {
-    is ColoringEvent.SelectTool, is ColoringEvent.SelectSize, ColoringEvent.Undo, ColoringEvent.Redo, ColoringEvent.NewAnimal -> Sound.Tap
+    is ColoringEvent.SelectTool, is ColoringEvent.SelectSize, ColoringEvent.Undo, ColoringEvent.Redo -> Sound.Tap
     is ColoringEvent.SelectColor -> Sound.Tick
     is ColoringEvent.TapAt -> if (tool == Tool.Fill) Sound.Fill else Sound.Tap
     ColoringEvent.ToggleStayInsideLines, ColoringEvent.Save, ColoringEvent.ExportToGallery -> null
@@ -252,14 +249,6 @@ private enum class GateTarget { Settings, Export }
 private fun ParentButton(@DrawableRes icon: Int, @StringRes label: Int, onClick: () -> Unit) {
     IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
         Icon(painterResource(icon), contentDescription = stringResource(label), tint = Color.Gray)
-    }
-}
-
-/** The big button that starts a new picture with a freshly generated animal. */
-@Composable
-private fun NewAnimalButton(modifier: Modifier, enabled: Boolean, onClick: () -> Unit) {
-    FilledIconButton(onClick = onClick, enabled = enabled, modifier = modifier, shape = CircleShape) {
-        Icon(painterResource(R.drawable.ic_paw), contentDescription = stringResource(R.string.new_animal), modifier = Modifier.size(36.dp))
     }
 }
 

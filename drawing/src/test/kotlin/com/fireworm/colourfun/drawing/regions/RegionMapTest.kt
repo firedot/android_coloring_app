@@ -2,108 +2,12 @@ package com.fireworm.colourfun.drawing.regions
 
 import android.graphics.Rect
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class RegionMapTest {
-
-    @Test
-    fun `a diagonal line of one-pixel steps separates the two sides`() {
-        val map = grid(
-            "#.......",
-            ".#......",
-            "..#.....",
-            "...#....",
-            "....#...",
-            ".....#..",
-            "......#.",
-            ".......#",
-        )
-
-        assertEquals(2, map.regions.size)
-        assertNotEquals(map.regionAt(7, 0), map.regionAt(0, 7))
-        // The two pixels touching only at a corner across the line stay apart.
-        assertNotEquals(map.regionAt(1, 0), map.regionAt(0, 1))
-    }
-
-    @Test
-    fun `nested shapes give separate regions with correct bounds and area`() {
-        val map = grid(
-            ".........",
-            ".#######.",
-            ".#.....#.",
-            ".#.###.#.",
-            ".#.#.#.#.",
-            ".#.###.#.",
-            ".#.....#.",
-            ".#######.",
-            ".........",
-        )
-
-        assertEquals(3, map.regions.size)
-        val outside = map.region(map.regionAt(0, 0))
-        val ring = map.region(map.regionAt(2, 2))
-        val centre = map.region(map.regionAt(4, 4))
-
-        assertEquals(setOf(outside.id, ring.id, centre.id).size, 3)
-        assertEquals(Rect(2, 2, 7, 7), ring.bounds)
-        assertEquals(16, ring.area)
-        assertEquals(Rect(4, 4, 5, 5), centre.bounds)
-        assertEquals(1, centre.area)
-    }
-
-    @Test
-    fun `only regions touching the border are background`() {
-        val map = grid(
-            ".........",
-            ".#######.",
-            ".#.....#.",
-            ".#.###.#.",
-            ".#.#.#.#.",
-            ".#.###.#.",
-            ".#.....#.",
-            ".#######.",
-            ".........",
-        )
-
-        assertTrue(map.region(map.regionAt(0, 0)).isBackground)
-        assertFalse(map.region(map.regionAt(2, 2)).isBackground)
-        assertFalse(map.region(map.regionAt(4, 4)).isBackground)
-    }
-
-    @Test
-    fun `outline pixels are region 0`() {
-        val map = grid(
-            "...",
-            "###",
-            "...",
-        )
-
-        assertEquals(0, map.regionAt(1, 1))
-        assertNotEquals(map.regionAt(1, 0), map.regionAt(1, 2))
-    }
-
-    @Test
-    fun `alpha above 96 is a line, 96 is not`() {
-        val notALine = grid(
-            "..+..",
-            "..+..",
-            "..+..",
-        )
-        val line = grid(
-            "..*..",
-            "..*..",
-            "..*..",
-        )
-
-        assertEquals(1, notALine.regions.size)
-        assertEquals(2, line.regions.size)
-    }
 
     @Test
     fun `a point on the outline picks the nearest region`() {

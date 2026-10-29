@@ -1,8 +1,0 @@
-{
-  "id": "leg_paw",
-  "category": "leg",
-  "compatibleWith": ["quadruped"],
-  "paths": ["M-48,-30 C-48,-75 48,-75 48,-30 L48,70 C48,120 -48,120 -48,70 Z"],
-  "zOrder": 20,
-  "scaleRange": [0.85, 1.15]
-}

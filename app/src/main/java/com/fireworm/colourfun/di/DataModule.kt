@@ -1,7 +1,7 @@
 package com.fireworm.colourfun.di
 
 import android.content.Context
-import com.fireworm.colourfun.data.artwork.ArtworkRepository
+import com.fireworm.colourfun.data.ArtworkRepository
 import com.fireworm.colourfun.data.export.GalleryExporter
 import com.fireworm.colourfun.data.settings.SettingsRepository
 import dagger.Module
