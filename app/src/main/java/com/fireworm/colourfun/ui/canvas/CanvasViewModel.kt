@@ -13,6 +13,7 @@ import com.fireworm.colourfun.drawing.history.History
 import com.fireworm.colourfun.drawing.layers.OutlineRasterizer
 import com.fireworm.colourfun.drawing.regions.RegionMap
 import com.fireworm.colourfun.drawing.regions.RegionMaskCache
+import com.fireworm.colourfun.ui.palette.DefaultColor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +29,9 @@ sealed interface Tool {
     data class Draw(val spec: BrushSpec) : Tool
     data object Fill : Tool
 
+    /** Picks a colour from the picture, then returns to the tool used before it. */
+    data object Pipette : Tool
+
     companion object {
         val Pen = Draw(BrushSpec(Medium.Pen, BrushSize.Medium))
     }
@@ -36,24 +40,23 @@ sealed interface Tool {
 data class ColoringUiState(
     val loading: Boolean = true,
     val tool: Tool = Tool.Pen,
-    val color: Int = DEFAULT_COLOR,
+    val color: Int = DefaultColor,
     val stayInsideLines: Boolean = true,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
 )
 
 sealed interface ColoringEvent {
+    /** Selecting [Tool.Pipette] while it is already active returns to the previous tool. */
     data class SelectTool(val tool: Tool) : ColoringEvent
+    data class SelectColor(val color: Int) : ColoringEvent
     data object ToggleStayInsideLines : ColoringEvent
 
-    /** A fill tap, in document pixels. */
-    data class FillAt(val x: Float, val y: Float) : ColoringEvent
+    /** A tap with a non-drawing tool (fill, pipette), in document pixels. */
+    data class TapAt(val x: Float, val y: Float) : ColoringEvent
     data object Undo : ColoringEvent
     data object Redo : ColoringEvent
 }
-
-/** Fixed until the palette exists. */
-private const val DEFAULT_COLOR = 0xFF1E88E5.toInt()
 
 /**
  * Owns the drawing engine for the current picture, so it survives configuration changes.
@@ -92,17 +95,40 @@ class CanvasViewModel @Inject constructor(
         }
     }
 
+    /** Where [Tool.Pipette] returns to. */
+    private var toolBeforePipette: Tool = Tool.Pen
+
     fun onEvent(event: ColoringEvent) {
         when (event) {
-            is ColoringEvent.SelectTool -> _uiState.update { it.copy(tool = event.tool) }
-            ColoringEvent.ToggleStayInsideLines -> _uiState.update { it.copy(stayInsideLines = !it.stayInsideLines) }
-            is ColoringEvent.FillAt -> {
-                val engine = _engine.value ?: return
-                val color = _uiState.value.color
-                viewModelScope.launch { engine.fill(event.x, event.y, color) }
+            is ColoringEvent.SelectTool -> selectTool(event.tool)
+            is ColoringEvent.SelectColor -> _uiState.update {
+                // Choosing a palette colour also ends picking one from the picture.
+                it.copy(color = event.color, tool = if (it.tool == Tool.Pipette) toolBeforePipette else it.tool)
             }
+            ColoringEvent.ToggleStayInsideLines -> _uiState.update { it.copy(stayInsideLines = !it.stayInsideLines) }
+            is ColoringEvent.TapAt -> tapAt(event.x, event.y)
             ColoringEvent.Undo -> _engine.value?.undo()
             ColoringEvent.Redo -> _engine.value?.redo()
+        }
+    }
+
+    private fun selectTool(tool: Tool) {
+        val current = _uiState.value.tool
+        val next = when {
+            tool == Tool.Pipette && current == Tool.Pipette -> toolBeforePipette
+            tool == Tool.Pipette -> tool.also { toolBeforePipette = current }
+            else -> tool
+        }
+        _uiState.update { it.copy(tool = next) }
+    }
+
+    private fun tapAt(x: Float, y: Float) {
+        val engine = _engine.value ?: return
+        val state = _uiState.value
+        when (state.tool) {
+            Tool.Fill -> viewModelScope.launch { engine.fill(x, y, state.color) }
+            Tool.Pipette -> _uiState.update { it.copy(color = engine.sampleColor(x, y), tool = toolBeforePipette) }
+            is Tool.Draw -> Unit
         }
     }
 }

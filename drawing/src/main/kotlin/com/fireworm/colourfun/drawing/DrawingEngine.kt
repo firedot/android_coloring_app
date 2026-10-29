@@ -16,6 +16,7 @@ import com.fireworm.colourfun.drawing.history.FillCommand
 import com.fireworm.colourfun.drawing.history.History
 import com.fireworm.colourfun.drawing.history.PixelPatch
 import com.fireworm.colourfun.drawing.history.StrokeCommand
+import com.fireworm.colourfun.drawing.pipette.ColorSampler
 import com.fireworm.colourfun.drawing.regions.RegionMap
 import com.fireworm.colourfun.drawing.regions.RegionMaskCache
 import com.fireworm.colourfun.drawing.stroke.Resampler
@@ -47,6 +48,8 @@ class DrawingEngine(
     val canRedo: StateFlow<Boolean> get() = history.canRedo
 
     val regions: RegionMap get() = masks.regions
+
+    private val sampler = ColorSampler(document.paint.bitmap, document.paper.color, masks.regions)
 
     private val documentRect = Rect(0, 0, document.size.width, document.size.height)
     private val dirty = Rect()
@@ -152,6 +155,9 @@ class DrawingEngine(
         history.push(FillCommand(bounds, before, after, regionId, color))
         invalidate(bounds)
     }
+
+    /** The colour the child sees at a document point, for the pipette. See [ColorSampler]. */
+    fun sampleColor(x: Float, y: Float): Int = sampler.sample(x, y)
 
     fun undo() {
         cancelStroke()

@@ -22,11 +22,11 @@ import com.fireworm.colourfun.drawing.document.DocumentCoords
 /**
  * Shows the engine's document fit-centred and feeds touches straight into the engine.
  *
- * With a drawing tool, one finger draws and a second finger cancels the stroke in progress. With the
- * fill tool, a touch reports its document position to [onFill]. Space outside the document is left
- * to the caller's background.
+ * With a drawing tool, one finger draws and a second finger cancels the stroke in progress. With any
+ * other tool (fill, pipette), a touch reports its document position to [onTap]. Space outside the
+ * document is left to the caller's background.
  *
- * @param onFill called with the document position of a fill tap.
+ * @param onTap called with the document position of a tap with a non-drawing tool.
  * @param onStrokeActiveChange called with `true` when a stroke starts and `false` when it ends.
  * @param onFrameDrawn called after each draw with the fraction of the document that changed.
  */
@@ -36,7 +36,7 @@ fun DrawingSurface(
     tool: Tool,
     color: Int,
     stayInsideLines: Boolean,
-    onFill: (x: Float, y: Float) -> Unit,
+    onTap: (x: Float, y: Float) -> Unit,
     modifier: Modifier = Modifier,
     onStrokeActiveChange: (Boolean) -> Unit = {},
     onFrameDrawn: (dirtyFraction: Float) -> Unit = {},
@@ -46,7 +46,7 @@ fun DrawingSurface(
     val currentTool by rememberUpdatedState(tool)
     val currentColor by rememberUpdatedState(color)
     val currentStayInsideLines by rememberUpdatedState(stayInsideLines)
-    val currentOnFill by rememberUpdatedState(onFill)
+    val currentOnTap by rememberUpdatedState(onTap)
     val currentOnStrokeActiveChange by rememberUpdatedState(onStrokeActiveChange)
     val documentSize = engine.document.size
     val documentPixels = documentSize.width.toFloat() * documentSize.height
@@ -58,9 +58,9 @@ fun DrawingSurface(
             val coords = DocumentCoords.fit(size.width.toFloat(), size.height.toFloat(), documentSize)
             val drawTool = when (val selected = currentTool) {
                 is Tool.Draw -> selected
-                Tool.Fill -> {
-                    // Fill on touch-down for instant feedback; the rest of the gesture is ignored.
-                    currentOnFill(coords.toDocumentX(down.position.x), coords.toDocumentY(down.position.y))
+                Tool.Fill, Tool.Pipette -> {
+                    // Act on touch-down for instant feedback; the rest of the gesture is ignored.
+                    currentOnTap(coords.toDocumentX(down.position.x), coords.toDocumentY(down.position.y))
                     return@awaitEachGesture
                 }
             }

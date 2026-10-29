@@ -4,4 +4,7 @@
     <string name="redo">Redo</string>
     <string name="tool_pen">Pen</string>
     <string name="tool_fill">Fill</string>
+    <string name="tool_pipette">Pick a colour from the picture</string>
+    <string name="palette_hue">Colour</string>
+    <string name="palette_shade">Light or dark</string>
 </resources>

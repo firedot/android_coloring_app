@@ -48,26 +48,36 @@ class RegionMap private constructor(
      * `0` only if no region is within [NEAREST_SEARCH_RADIUS] pixels.
      */
     fun regionNear(x: Float, y: Float): Int {
+        val i = nearestRegionPixel(x, y)
+        return if (i < 0) 0 else labels[i].toInt()
+    }
+
+    /**
+     * Index (`y * width + x`) of the non-outline pixel nearest to a document point: the point
+     * itself unless it is on the outline. `-1` if none is within [NEAREST_SEARCH_RADIUS] pixels.
+     */
+    internal fun nearestRegionPixel(x: Float, y: Float): Int {
         val cx = x.toInt().coerceIn(0, width - 1)
         val cy = y.toInt().coerceIn(0, height - 1)
-        regionAt(cx, cy).let { if (it != 0) return it }
+        if (labels[cy * width + cx].toInt() != 0) return cy * width + cx
 
-        var best = 0
+        var best = -1
         var bestDistance = Int.MAX_VALUE
         for (r in 1..NEAREST_SEARCH_RADIUS) {
             for (dy in -r..r) {
                 for (dx in -r..r) {
                     if (maxOf(abs(dx), abs(dy)) != r) continue
-                    val id = regionAt(cx + dx, cy + dy)
+                    val px = cx + dx
+                    val py = cy + dy
                     val distance = dx * dx + dy * dy
-                    if (id != 0 && distance < bestDistance) {
-                        best = id
+                    if (regionAt(px, py) != 0 && distance < bestDistance) {
+                        best = py * width + px
                         bestDistance = distance
                     }
                 }
             }
             // Pixels in later rings are at least r + 1 away.
-            if (best != 0 && bestDistance <= (r + 1) * (r + 1)) return best
+            if (best >= 0 && bestDistance <= (r + 1) * (r + 1)) return best
         }
         return best
     }
