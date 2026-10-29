@@ -49,7 +49,7 @@ REGION_MIN_EASY = 6000          # T7
 REGION_COUNT = (8, 80)          # T8
 SUBJECT_COVER = (0.45, 0.85)    # T9
 SOLID_MAX_FRACTION = 0.02       # T10
-SOLID_MAX_SIDE = 60             # T10
+SOLID_MAX_SIDE = 140            # T10
 SPECK_MAX = 64                  # T11
 SUPERSAMPLE = 2                 # render scale for anti-aliasing
 
@@ -62,7 +62,7 @@ SYNTHETIC_SOURCE = "synthetic test picture (prepare.py --synthetic)"
 
 
 class Rejected(Exception):
-    """A rule failed; the message is the reason written next to the rejected file."""
+    """Rules failed; the message (one line per failure) is written next to the rejected file."""
 
 
 # --- Connected components -------------------------------------------------------------------
@@ -280,6 +280,27 @@ def solid_areas(ink: np.ndarray, width: float = LINE_WIDTH_RANGE[1]) -> np.ndarr
     return ink & dilate(erode(ink, radius), radius + 1)
 
 
+def fill_highlights(ink: np.ndarray) -> tuple[np.ndarray, int]:
+    """Fills small white spots inside solid areas, like the highlight dots in pupils.
+
+    A spot is a white region under REGION_MIN that lies mostly inside a solid area once filled.
+    Such spots would be regions too small to colour; small regions between lines are left alone
+    so the T7 check still reports them. Returns the new ink and the number of spots filled.
+    """
+    holes = components(~ink, eight=False)
+    small = holes.area < REGION_MIN
+    if not small.any():
+        return ink, 0
+    spots = holes.mask_of(small)
+    solid = solid_areas(ink | spots, line_width(ink))
+    inside = np.zeros(holes.count)
+    for label, y, start, end in zip(holes.run_label, holes.run_y, holes.run_start, holes.run_end):
+        if small[label]:
+            inside[label] += solid[y, start:end].sum()
+    highlight = small & (inside > holes.area / 2)
+    return ink | holes.mask_of(highlight), int(highlight.sum())
+
+
 def restroke(ink: np.ndarray) -> np.ndarray:
     """Lines redrawn along their centre at LINE_WIDTH; solid areas kept as they are."""
     width = line_width(ink)
@@ -312,6 +333,16 @@ def render(mask: np.ndarray) -> np.ndarray:
     return np.asarray(canvas.resize((WIDTH, HEIGHT), Image.BOX), dtype=np.uint8)
 
 
+def close_pinholes(lum: np.ndarray) -> np.ndarray:
+    """Turns white specks trapped inside a line by the anti-aliased render into line."""
+    line = (255 - lum.astype(np.int32)) > LINE_ALPHA_THRESHOLD
+    holes = components(~line, eight=False)
+    pinholes = holes.area < SPECK_MAX
+    if not pinholes.any():
+        return lum
+    return np.where(holes.mask_of(pinholes), 0, lum).astype(np.uint8)
+
+
 def bezier(p0, p1, p2, p3, s: int, steps: int = 12) -> list[tuple[float, float]]:
     out = []
     for i in range(1, steps + 1):
@@ -336,69 +367,77 @@ class Report:
 
 
 def validate(lum: np.ndarray) -> Report:
-    """Checks the T-rules on the final picture; raises Rejected with the first failure."""
+    """Checks the T-rules on the final picture; raises Rejected listing every failure."""
     if lum.shape != (HEIGHT, WIDTH):                                            # T2
-        raise Rejected(f"size {lum.shape[1]}x{lum.shape[0]}, expected {WIDTH}x{HEIGHT}")
+        raise Rejected(f"T2 size {lum.shape[1]}x{lum.shape[0]}, expected {WIDTH}x{HEIGHT}")
+    failures = []
     line = (255 - lum.astype(np.int32)) > LINE_ALPHA_THRESHOLD
     ink = lum < 128
 
     grey = (lum > 8) & (lum < 247)                                              # T3
     stray = grey & ~dilate(ink, 2)
-    if stray.sum() > 0:
-        raise Rejected(f"T3 grey pixels away from the lines: {int(stray.sum())}")
+    if stray.any():
+        failures.append(f"T3 grey pixels away from the lines: {int(stray.sum())}")
 
     edge = np.zeros_like(line)                                                  # T5
     edge[:EDGE_MARGIN, :] = edge[-EDGE_MARGIN:, :] = True
     edge[:, :EDGE_MARGIN] = edge[:, -EDGE_MARGIN:] = True
     if (line & edge).any():
-        raise Rejected(f"T5 lines within {EDGE_MARGIN} px of the border")
+        failures.append(f"T5 lines within {EDGE_MARGIN} px of the border")
 
     solid = solid_areas(ink)                                                    # T10
     solid_fraction = solid.sum() / solid.size
     if solid_fraction > SOLID_MAX_FRACTION:
-        raise Rejected(f"T10 solid black covers {solid_fraction:.1%} of the image (max {SOLID_MAX_FRACTION:.0%})")
+        failures.append(f"T10 solid black covers {solid_fraction:.1%} of the image (max {SOLID_MAX_FRACTION:.0%})")
     if solid.any():
-        b = components(solid, eight=True).bounds()
-        big = (b[:, 2] - b[:, 0] > SOLID_MAX_SIDE) | (b[:, 3] - b[:, 1] > SOLID_MAX_SIDE)
-        if big.any():
-            l, t, r, bt = b[np.flatnonzero(big)[0]]
-            raise Rejected(f"T10 solid area of {r - l}x{bt - t} px at ({l}, {t}) (max {SOLID_MAX_SIDE}x{SOLID_MAX_SIDE})")
+        for l, t, r, b in components(solid, eight=True).bounds():
+            if r - l > SOLID_MAX_SIDE or b - t > SOLID_MAX_SIDE:
+                failures.append(f"T10 solid area of {r - l}x{b - t} px at ({l}, {t}) (max {SOLID_MAX_SIDE}x{SOLID_MAX_SIDE})")
 
     strokes = ink & ~solid                                                      # T4
     centre = skeleton(strokes)
     line_width = strokes.sum() / max(1, centre.sum())
     if not LINE_WIDTH_RANGE[0] <= line_width <= LINE_WIDTH_RANGE[1]:
-        raise Rejected(f"T4 line width {line_width:.1f} px (expected {LINE_WIDTH_RANGE[0]}-{LINE_WIDTH_RANGE[1]})")
+        failures.append(f"T4 line width {line_width:.1f} px (expected {LINE_WIDTH_RANGE[0]}-{LINE_WIDTH_RANGE[1]})")
 
-    probe_gaps(line, centre)                                                    # T6
+    failures += probe_gaps(line, centre)                                        # T6
 
     regions = components(~line, eight=False)                                    # T7, T8
     count = regions.count
     if not REGION_COUNT[0] <= count <= REGION_COUNT[1]:
-        raise Rejected(f"T8 {count} regions (expected {REGION_COUNT[0]}-{REGION_COUNT[1]})")
-    difficulty = "easy" if count <= 25 else "medium" if count <= 50 else "hard"
-    minimum = REGION_MIN_EASY if difficulty == "easy" else REGION_MIN
-    small = np.flatnonzero(regions.area < minimum)
-    if small.size:
-        i = small[np.argmin(regions.area[small])]
-        l, t, r, b = regions.bounds()[i]
-        raise Rejected(f"T7 region at ({l}, {t})-({r}, {b}) = {regions.area[i]} px² (min {minimum} for {difficulty})")
+        failures.append(f"T8 {count} regions (expected {REGION_COUNT[0]}-{REGION_COUNT[1]})")
+    # Few regions, all of them big, is easy; few regions with some small ones counts as medium.
+    if count <= 25 and regions.area.min() >= REGION_MIN_EASY:
+        difficulty = "easy"
+    else:
+        difficulty = "medium" if count <= 50 else "hard"
+    bounds = regions.bounds()
+    for i in np.flatnonzero(regions.area < REGION_MIN):
+        l, t, r, b = bounds[i]
+        failures.append(f"T7 region at ({l}, {t})-({r}, {b}) = {regions.area[i]} px² (min {REGION_MIN})")
 
     ys, xs = np.nonzero(line)                                                   # T9
-    cover = (xs.max() + 1 - xs.min()) * (ys.max() + 1 - ys.min()) / (WIDTH * HEIGHT)
+    cover = (xs.max() + 1 - xs.min()) * (ys.max() + 1 - ys.min()) / (WIDTH * HEIGHT) if xs.size else 0.0
     if not SUBJECT_COVER[0] <= cover <= SUBJECT_COVER[1]:
-        raise Rejected(f"T9 the drawing covers {cover:.0%} of the image (expected {SUBJECT_COVER[0]:.0%}-{SUBJECT_COVER[1]:.0%})")
+        failures.append(f"T9 the drawing covers {cover:.0%} of the image (expected {SUBJECT_COVER[0]:.0%}-{SUBJECT_COVER[1]:.0%})")
 
+    if failures:
+        raise Rejected("\n".join(failures))
     return Report(count, difficulty, float(line_width), float(cover), float(solid_fraction))
 
 
-def probe_gaps(line: np.ndarray, centre: np.ndarray) -> None:
-    """T6: an open line end must be at least GAP_MIN px from any other line.
+def probe_gaps(line: np.ndarray, centre: np.ndarray) -> list[str]:
+    """T6: an open line end closer than GAP_MIN to another line must not almost close an area.
 
     Around each end, the line it belongs to is the component containing it inside a small
-    window; any other line in the window closer than GAP_MIN is a near-gap.
+    window. If another line in the window is closer than GAP_MIN, the gap is bridged with a line
+    and the picture relabelled: if that adds a region, a child would see a closed area that the
+    fill leaks out of. Gaps that close nothing (loose whiskers side by side) are fine. Returns one
+    message per near-gap.
     """
+    failures = []
     reach = GAP_MIN + LINE_WIDTH
+    regions = None
     for x, y in endpoints(centre):
         l, t = max(0, x - reach), max(0, y - reach)
         window = line[t:y + reach + 1, l:x + reach + 1]
@@ -408,9 +447,19 @@ def probe_gaps(line: np.ndarray, centre: np.ndarray) -> None:
         oy, ox = np.nonzero(others)
         if oy.size == 0:
             continue
-        distance = np.sqrt((ox + l - x) ** 2 + (oy + t - y) ** 2).min() - LINE_WIDTH / 2
-        if distance < GAP_MIN:
-            raise Rejected(f"T6 open line end at ({x}, {y}) is {max(0.0, distance):.0f} px from another line (min {GAP_MIN})")
+        distances = np.sqrt((ox + l - x) ** 2 + (oy + t - y) ** 2)
+        nearest = int(distances.argmin())
+        distance = distances[nearest] - LINE_WIDTH / 2
+        if distance >= GAP_MIN:
+            continue
+        if regions is None:
+            regions = components(~line, eight=False).count
+        bridged = Image.fromarray(line.astype(np.uint8) * 255)
+        ImageDraw.Draw(bridged).line([(x, y), (int(ox[nearest] + l), int(oy[nearest] + t))], fill=255, width=LINE_WIDTH)
+        if components(np.asarray(bridged) < 128, eight=False).count > regions:
+            failures.append(f"T6 open line end at ({x}, {y}) is {max(0.0, distance):.0f} px from another line "
+                            f"and almost closes an area (min gap {GAP_MIN})")
+    return failures
 
 
 # --- Output ---------------------------------------------------------------------------------
@@ -446,7 +495,8 @@ def prepare(source: Path, section: str, slug: str, provenance: str, replace_synt
     gray = load_gray(source)
     ink = despeckle(gray < 128)
     ink = fit_to_page(gray, ink)
-    lum = render(restroke(despeckle(ink)))
+    ink, highlights = fill_highlights(despeckle(ink))
+    lum = close_pinholes(render(restroke(ink)))
     report = validate(lum)
 
     out_dir = ASSETS_DIR / section
@@ -471,6 +521,8 @@ def prepare(source: Path, section: str, slug: str, provenance: str, replace_synt
     size_kb = png.stat().st_size / 1024
     print(f"ok  {picture_id}: {report.regions} regions ({report.difficulty}), line {report.line_width:.1f} px, "
           f"cover {report.cover:.0%}, solid {report.solid_fraction:.2%}, {size_kb:.0f} KB")
+    if highlights:
+        print(f"    filled {highlights} highlight spot(s) inside solid areas")
     if not 50 <= size_kb <= 200:                                                # T13
         print(f"    note: {size_kb:.0f} KB is outside the usual 50-200 KB; check it by eye")
     return report
@@ -481,7 +533,8 @@ def reject(source: Path, section: str, slug: str, reason: str) -> None:
     target.mkdir(parents=True, exist_ok=True)
     shutil.move(str(source), target / source.name)
     (target / f"{slug}.txt").write_text(reason + "\n", encoding="utf-8")
-    print(f"REJECTED {section}/{slug}: {reason}\n    moved to {target / source.name}", file=sys.stderr)
+    reasons = "\n".join(f"    - {line}" for line in reason.splitlines())
+    print(f"REJECTED {section}/{slug}:\n{reasons}\n    moved to {target / source.name}", file=sys.stderr)
 
 
 # --- Synthetic test pictures ----------------------------------------------------------------
@@ -612,8 +665,9 @@ def synthetic() -> int:
                     prepare(source, section, slug, SYNTHETIC_SOURCE, replace_synthetic=True)
                 except Rejected as e:
                     failures += 1
-                    print(f"FAILED {section}/{slug}: {e}", file=sys.stderr)
-                    sketch.image.save(TOOL_DIR / f"failed_{slug}.png")
+                    print(f"FAILED {section}/{slug}:\n{e}", file=sys.stderr)
+                    REJECTED_DIR.mkdir(parents=True, exist_ok=True)
+                    sketch.image.save(REJECTED_DIR / f"failed_{slug}.png")
     return 1 if failures else 0
 
 

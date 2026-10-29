@@ -344,8 +344,8 @@ Pictures are bundled in `:data` under `assets/pictures/`. `catalog.json` is the 
 - Sections are data, not code, so adding "vehicles" later means editing JSON and adding files.
 - Sections are shown by icon (paw, leaf, star), with no text, consistent with the README's
   minimal-text rule.
-- `difficulty` (`easy`, `medium`, `hard`) is derived from the region count by `prepare.py` and is
-  available for later sorting or filtering.
+- `difficulty` (`easy`, `medium`, `hard`) is derived from the region count and the smallest region
+  by `prepare.py` and is available for later sorting or filtering.
 - **Picture ids and files are immutable once shipped.** A changed picture gets a new id
   (`cat_01` → `cat_02`). Saved artworks also keep their own outline copy (§7), so they stay valid.
 
@@ -355,9 +355,10 @@ Pictures are bundled in `:data` under `assets/pictures/`. `catalog.json` is the 
 source image (ChatGPT, any size) ──▶ tools/pictures/prepare.py ──▶ 2048×1536 PNG + thumb + catalog entry
                                        │
                                        ├─ grayscale → threshold → despeckle (remove blobs < 64 px)
-                                       ├─ vectorize (potrace) → re-render at uniform line width
                                        ├─ fit into 4:3 with white margin
-                                       ├─ validate (rules below); reject with a reason
+                                       ├─ fill highlight spots inside solid areas (pupils)
+                                       ├─ vectorize (potrace) → re-render at uniform line width
+                                       ├─ validate (rules below); reject listing every failed rule
                                        └─ thumbnail 384×288 WebP
 ```
 
@@ -375,11 +376,11 @@ Full rules and the ChatGPT prompt: [PICTURE_GUIDELINES.md](PICTURE_GUIDELINES.md
 | Content | Black line art on pure white; anti-aliased edges only; no grey fills, shading, hatching or text |
 | Line width | Uniform 12–18 px |
 | Edge margin | No line pixel within 64 px of the image border |
-| Closure | Every colorable area fully closed; gaps are either 0 or ≥ 40 px |
-| Minimum region | Every region ≥ 1500 px² (`easy`: ≥ 6000 px²) |
-| Region count | 8–80 (easy 8–25, medium 26–50, hard 51–80) |
+| Closure | Every colorable area fully closed; a gap under 40 px must not almost close an area |
+| Minimum region | Every region ≥ 1500 px² (`easy` pictures: all ≥ 6000 px²) |
+| Region count | 8–80 (easy 8–25, medium up to 50, hard 51–80) |
 | Subject size | Bounding box covers 45–85 % of the image area |
-| Solid black | Total solid fill (pupils etc.) ≤ 2 % of the image |
+| Solid black | Total solid fill (pupils etc.) ≤ 2 % of the image; each area ≤ 140 × 140 px |
 
 ### 5.4 Loading a picture
 
