@@ -4,7 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import com.fireworm.colourfun.ui.canvas.ColoringScreen
+import com.fireworm.colourfun.ui.nav.ColourFunNavHost
 import com.fireworm.colourfun.ui.theme.ColourFunTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -15,7 +15,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             ColourFunTheme {
-                ColoringScreen()
+                ColourFunNavHost()
             }
         }
     }

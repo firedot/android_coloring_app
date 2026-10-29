@@ -3,6 +3,10 @@
     <string name="undo">Undo</string>
     <string name="redo">Redo</string>
     <string name="new_animal">New animal</string>
+    <string name="gallery">My pictures</string>
+    <string name="gallery_empty">No pictures yet</string>
+    <string name="open_picture">Colour this picture</string>
+    <string name="back">Back</string>
     <string name="tool_pen">Pen</string>
     <string name="tool_pencil">Pencil</string>
     <string name="tool_chalk">Chalk</string>

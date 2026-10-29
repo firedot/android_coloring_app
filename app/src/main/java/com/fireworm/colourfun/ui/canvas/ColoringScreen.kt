@@ -29,6 +29,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fireworm.colourfun.R
 import com.fireworm.colourfun.debug.rememberFrameTimeLogger
@@ -42,11 +44,14 @@ private val EdgePadding = 8.dp
 private val HistoryButtonSize = 56.dp
 
 @Composable
-fun ColoringScreen(viewModel: CanvasViewModel = hiltViewModel()) {
+fun ColoringScreen(onOpenGallery: () -> Unit, viewModel: CanvasViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val engine by viewModel.engine.collectAsStateWithLifecycle()
     val frameTimeLogger = rememberFrameTimeLogger()
     val onEvent = viewModel::onEvent
+
+    // Leaving the screen or the app: save without waiting for the autosave delay.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { onEvent(ColoringEvent.Save) }
 
     val canvas = @Composable { modifier: Modifier ->
         Box(modifier) {
@@ -103,6 +108,7 @@ fun ColoringScreen(viewModel: CanvasViewModel = hiltViewModel()) {
                         NewAnimalButton(Modifier.size(width = 120.dp, height = 64.dp), enabled = !uiState.loading) {
                             onEvent(ColoringEvent.NewAnimal)
                         }
+                        GalleryButton(Modifier.size(width = 120.dp, height = HistoryButtonSize), onOpenGallery)
                         palette(true, Modifier.weight(1f))
                         Row(horizontalArrangement = Arrangement.spacedBy(EdgePadding)) {
                             HistoryButtons(uiState, onEvent)
@@ -133,10 +139,13 @@ fun ColoringScreen(viewModel: CanvasViewModel = hiltViewModel()) {
                         ) {
                             sizes()
                             Spacer(Modifier.weight(1f))
-                            NewAnimalButton(Modifier.size(width = 88.dp, height = 56.dp), enabled = !uiState.loading) {
+                            HistoryButtons(uiState, onEvent)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(EdgePadding)) {
+                            GalleryButton(Modifier.size(width = 88.dp, height = HistoryButtonSize), onOpenGallery)
+                            NewAnimalButton(Modifier.size(width = 120.dp, height = 64.dp), enabled = !uiState.loading) {
                                 onEvent(ColoringEvent.NewAnimal)
                             }
-                            HistoryButtons(uiState, onEvent)
                         }
                     }
                     canvas(Modifier.weight(1f).fillMaxWidth())
@@ -152,6 +161,14 @@ fun ColoringScreen(viewModel: CanvasViewModel = hiltViewModel()) {
 private fun NewAnimalButton(modifier: Modifier, enabled: Boolean, onClick: () -> Unit) {
     FilledIconButton(onClick = onClick, enabled = enabled, modifier = modifier, shape = CircleShape) {
         Icon(painterResource(R.drawable.ic_paw), contentDescription = stringResource(R.string.new_animal), modifier = Modifier.size(36.dp))
+    }
+}
+
+/** Opens the saved pictures. */
+@Composable
+private fun GalleryButton(modifier: Modifier, onClick: () -> Unit) {
+    FilledTonalIconButton(onClick = onClick, modifier = modifier, shape = CircleShape) {
+        Icon(painterResource(R.drawable.ic_gallery), contentDescription = stringResource(R.string.gallery), modifier = Modifier.size(28.dp))
     }
 }
 

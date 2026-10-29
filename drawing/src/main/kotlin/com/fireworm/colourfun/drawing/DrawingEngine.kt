@@ -21,11 +21,11 @@ import com.fireworm.colourfun.drawing.history.History
 import com.fireworm.colourfun.drawing.history.PixelPatch
 import com.fireworm.colourfun.drawing.history.StrokeCommand
 import com.fireworm.colourfun.drawing.pipette.ColorSampler
-import com.fireworm.colourfun.generator.random.Pcg32
 import com.fireworm.colourfun.drawing.regions.RegionMap
 import com.fireworm.colourfun.drawing.regions.RegionMaskCache
 import com.fireworm.colourfun.drawing.stroke.Resampler
 import com.fireworm.colourfun.drawing.stroke.StrokeSmoother
+import com.fireworm.colourfun.generator.random.Pcg32
 import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +49,11 @@ class DrawingEngine(
 
     /** Changes whenever the picture changes; the surface redraws when it does. */
     val frameVersion: StateFlow<Long> = _frameVersion.asStateFlow()
+
+    private val _edits = MutableStateFlow(0L)
+
+    /** Counts finished commands, undos and redos: changes worth saving. */
+    val edits: StateFlow<Long> = _edits.asStateFlow()
 
     val canUndo: StateFlow<Boolean> get() = history.canUndo
     val canRedo: StateFlow<Boolean> get() = history.canRedo
@@ -158,6 +163,7 @@ class DrawingEngine(
         val after = PixelPatch.capture(paintBitmap, bounds)
         document.stroke.clear(bounds)
         history.push(StrokeCommand(bounds, before, after, s.spec, s.color, s.seed))
+        _edits.value++
         invalidate(bounds)
     }
 
@@ -189,6 +195,7 @@ class DrawingEngine(
         document.paint.canvas.drawBitmap(mask, bounds, bounds, fillPaint)
         val after = PixelPatch.capture(paintBitmap, bounds)
         history.push(FillCommand(bounds, before, after, regionId, color))
+        _edits.value++
         invalidate(bounds)
     }
 
@@ -197,12 +204,12 @@ class DrawingEngine(
 
     fun undo() {
         cancelStroke()
-        history.undo(document.paint.bitmap)?.let(::invalidate)
+        history.undo(document.paint.bitmap)?.let { invalidate(it); _edits.value++ }
     }
 
     fun redo() {
         cancelStroke()
-        history.redo(document.paint.bitmap)?.let(::invalidate)
+        history.redo(document.paint.bitmap)?.let { invalidate(it); _edits.value++ }
     }
 
     /** Draws the whole picture, including the stroke in progress, in document coordinates. */
