@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -5,22 +7,48 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+// Release signing comes from environment variables (CI) or local.properties (local builds).
+// Without them the release build is left unsigned.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use(::load)
+}
+
+fun signingValue(key: String): String? =
+    providers.environmentVariable(key).orNull ?: localProperties.getProperty(key)
+
+val releaseKeystore = signingValue("COLOURFUN_KEYSTORE_FILE")
+
 android {
     namespace = "com.example.colourfun"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.example.colourfun"
+        // Permanent Play Store identity: never change after the first upload.
+        applicationId = "com.fireworm.colourfun"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 1
+        // CI passes the run number so every uploaded bundle has a higher versionCode.
+        versionCode = providers.environmentVariable("VERSION_CODE").orNull?.toInt() ?: 1
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = rootProject.file(releaseKeystore)
+                storePassword = signingValue("COLOURFUN_KEYSTORE_PASSWORD")
+                keyAlias = signingValue("COLOURFUN_KEY_ALIAS")
+                keyPassword = signingValue("COLOURFUN_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
