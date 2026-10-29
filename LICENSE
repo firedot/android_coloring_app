@@ -1,21 +1,22 @@
-MIT License
+Copyright (c) 2026 Aleksandar Todorov. All rights reserved.
 
-Copyright (c) 2026 FireWorm
+This software, including its source code, pictures, sounds and other assets,
+is proprietary and confidential to the copyright holder.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+No part of it may be copied, modified, merged, published, distributed,
+sublicensed, sold or used to build derivative works, in whole or in part,
+without the prior written permission of the copyright holder. Viewing the
+source code in this repository does not grant any licence to use it, except
+for the rights GitHub's Terms of Service give to view and fork public
+repositories on GitHub.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Third-party libraries included in the app are distributed under their own
+licences; the app lists them under Settings > Open-source licences.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+IMPLIED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR ITS USE.
+
+For licensing enquiries, contact the copyright holder via
+https://github.com/firedot.

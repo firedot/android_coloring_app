@@ -236,7 +236,7 @@ Please follow the [Kotlin coding conventions](https://kotlinlang.org/docs/coding
 
 ## License
 
-This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
+Copyright © 2026 Aleksandar Todorov. All rights reserved. This is proprietary software; see [LICENSE](LICENSE). Third-party libraries keep their own licences, listed in the app under Settings → Open-source licences.
 
 ---
 

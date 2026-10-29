@@ -11,15 +11,18 @@ import com.fireworm.colourfun.ui.canvas.CanvasViewModel.Companion.ARTWORK_ID
 import com.fireworm.colourfun.ui.canvas.CanvasViewModel.Companion.PICTURE_ID
 import com.fireworm.colourfun.ui.canvas.ColoringScreen
 import com.fireworm.colourfun.ui.library.LibraryScreen
+import com.fireworm.colourfun.ui.settings.LicensesScreen
 import com.fireworm.colourfun.ui.settings.SettingsScreen
 
 private const val LIBRARY = "library"
 private const val COLORING = "coloring?$PICTURE_ID={$PICTURE_ID}&$ARTWORK_ID={$ARTWORK_ID}"
 private const val SETTINGS = "settings"
+private const val LICENSES = "licenses"
 
 /**
  * Library (start) → Coloring, with a new artwork from a picture or a saved one from "my pictures".
- * Home and back return to the library. Settings open from the library after the parent gate.
+ * Home and back return to the library. Settings open from the library after the parent gate;
+ * the open-source licences open from settings.
  */
 @Composable
 fun ColourFunNavHost(navController: NavHostController = rememberNavController()) {
@@ -43,7 +46,13 @@ fun ColourFunNavHost(navController: NavHostController = rememberNavController())
         ) {
             ColoringScreen(onHome = { navController.popBackStack(LIBRARY, inclusive = false) })
         }
-        composable(SETTINGS) { SettingsScreen(onBack = { navController.popBackStack() }) }
+        composable(SETTINGS) {
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenLicenses = { navController.navigate(LICENSES) { launchSingleTop = true } },
+            )
+        }
+        composable(LICENSES) { LicensesScreen(onBack = { navController.popBackStack() }) }
     }
 }
 
