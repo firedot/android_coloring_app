@@ -5,7 +5,6 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
-import android.graphics.Rect
 import androidx.core.graphics.createBitmap
 import com.fireworm.colourfun.drawing.document.DocumentSize
 
@@ -20,9 +19,12 @@ class PaintLayer(size: DocumentSize) {
         canvas.drawBitmap(bitmap, 0f, 0f, paint)
     }
 
-    /** Replaces all paint with [saved], scaled if it was made at another document size. */
+    /** Replaces all paint with [saved]. A saved document is never resized, so the sizes must match. */
     fun load(saved: Bitmap) {
-        val replace = Paint(Paint.FILTER_BITMAP_FLAG).also { it.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC) }
-        canvas.drawBitmap(saved, null, Rect(0, 0, bitmap.width, bitmap.height), replace)
+        require(saved.width == bitmap.width && saved.height == bitmap.height) {
+            "Saved paint is ${saved.width}×${saved.height}, the document ${bitmap.width}×${bitmap.height}"
+        }
+        val replace = Paint().also { it.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC) }
+        canvas.drawBitmap(saved, 0f, 0f, replace)
     }
 }

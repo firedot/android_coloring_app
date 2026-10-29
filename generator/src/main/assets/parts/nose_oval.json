@@ -1,8 +1,0 @@
-{
-  "id": "nose_oval",
-  "category": "nose",
-  "compatibleWith": ["quadruped"],
-  "paths": ["M-32,0 A32,22 0 1,0 32,0 A32,22 0 1,0 -32,0 Z"],
-  "zOrder": 40,
-  "scaleRange": [0.85, 1.15]
-}

@@ -2,9 +2,10 @@ package com.fireworm.colourfun.data
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.fireworm.colourfun.data.artwork.ArtworkDatabase
-import com.fireworm.colourfun.data.artwork.ArtworkFileStore
-import com.fireworm.colourfun.data.artwork.ArtworkRepository
+import com.fireworm.colourfun.data.db.ColourFunDatabase
+import com.fireworm.colourfun.data.db.documentSize
+import com.fireworm.colourfun.data.files.ArtworkFileStore
+import com.fireworm.colourfun.drawing.document.DocumentSize
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -28,22 +29,25 @@ class ArtworkPersistenceTest {
     }
 
     @Test
-    fun saveKillRestoreYieldsIdenticalPaintPixels() = runBlocking {
-        val paint = testPaint(2048, 1536)
+    fun saveKillRestoreYieldsIdenticalPaintPixelsAndDocumentSize() = runBlocking {
+        // A full-size 20:9 document.
+        val paint = testPaint(3413, 1536)
         val expected = paint.pixels()
 
-        ArtworkDatabase.create(context, dbName).let { db ->
+        ColourFunDatabase.create(context, dbName).let { db ->
             ArtworkRepository(db.artworkDao(), ArtworkFileStore(root)).save(testSnapshot("artwork", paint))
             db.close()
         }
         paint.recycle()
 
-        val db = ArtworkDatabase.create(context, dbName)
+        val db = ColourFunDatabase.create(context, dbName)
         val restored = checkNotNull(ArtworkRepository(db.artworkDao(), ArtworkFileStore(root)).load("artwork"))
         db.close()
 
         val restoredPaint = checkNotNull(restored.paint)
-        assertEquals(2048, restoredPaint.width)
+        assertEquals(DocumentSize(3413, 1536, 1f), restored.entity.documentSize)
+        assertEquals(3413, restoredPaint.width)
         assertArrayEquals(expected, restoredPaint.pixels())
+        assertArrayEquals(testOutlinePng, restored.outlinePng)
     }
 }

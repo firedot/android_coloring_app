@@ -5,11 +5,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import androidx.core.graphics.createBitmap
-import com.fireworm.colourfun.data.artwork.ArtworkSnapshot
-import com.fireworm.colourfun.generator.LineArt
-import com.fireworm.colourfun.generator.OutlineShape
-import com.fireworm.colourfun.generator.geometry.PathShape
-import com.fireworm.colourfun.generator.geometry.Vec2
+import com.fireworm.colourfun.drawing.document.DocumentSize
+import java.io.ByteArrayOutputStream
 import kotlin.random.Random
 
 /** Paint with opaque, translucent and nearly transparent pixels: the cases PNG must keep exact. */
@@ -26,22 +23,24 @@ fun testPaint(width: Int, height: Int, seed: Int = 3): Bitmap {
     return bitmap
 }
 
-fun testLineArt(seed: Long = 9) = LineArt(
-    width = 2048,
-    height = 1536,
-    shapes = listOf(OutlineShape(PathShape.ellipse(Vec2(1024f, 768f), 500f, 400f))),
-    strokeWidth = 12f,
-    seed = seed,
-    generatorVersion = 1,
-)
+/** Stands in for a library picture PNG; its content doesn't matter to the repository. */
+val testOutlinePng: ByteArray by lazy {
+    val picture = createBitmap(8, 6).apply { eraseColor(Color.WHITE) }
+    ByteArrayOutputStream().use {
+        picture.compress(Bitmap.CompressFormat.PNG, 100, it)
+        it.toByteArray()
+    }
+}
 
-fun testSnapshot(id: String, paint: Bitmap) = ArtworkSnapshot(
+/** A document the size of [paint]; [scale] makes the picture area fit its height. */
+fun testSnapshot(id: String, paint: Bitmap, scale: Float = paint.height / DocumentSize.PICTURE_HEIGHT.toFloat()) = ArtworkSnapshot(
     id = id,
-    lineArt = testLineArt(),
-    documentScale = paint.width / 2048f,
+    pictureId = "animals/test_01",
+    outlinePng = testOutlinePng,
+    size = DocumentSize(paint.width, paint.height, scale),
     paperColor = Color.WHITE,
     paint = paint,
-    outline = createBitmap(paint.width, paint.height),
+    outline = createBitmap(paint.width, paint.height, Bitmap.Config.ALPHA_8),
 )
 
 fun Bitmap.pixels(): IntArray = IntArray(width * height).also { getPixels(it, 0, width, 0, 0, width, height) }

@@ -1,9 +1,0 @@
-{
-  "id": "body_pear",
-  "category": "body",
-  "compatibleWith": ["quadruped"],
-  "paths": ["M0,-190 C110,-190 170,-90 200,10 C240,130 170,210 0,210 C-170,210 -240,130 -200,10 C-170,-90 -110,-190 0,-190 Z"],
-  "anchors": { "head": [0, -175], "leg_left": [-105, 125], "tail": [195, 95] },
-  "zOrder": 10,
-  "scaleRange": [0.9, 1.1]
-}

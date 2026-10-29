@@ -1,7 +1,6 @@
 // Room, artwork files, MediaStore export, DataStore settings.
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.room)
 }
@@ -30,7 +29,6 @@ room {
 }
 
 dependencies {
-    api(project(":generator"))
     api(project(":drawing"))
 
     implementation(libs.androidx.core.ktx)
@@ -39,7 +37,6 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)

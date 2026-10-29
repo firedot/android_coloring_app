@@ -1,10 +1,10 @@
 package com.fireworm.colourfun.data
 
 import androidx.room.Room
-import com.fireworm.colourfun.data.artwork.ArtworkDatabase
-import com.fireworm.colourfun.data.artwork.ArtworkFileStore
-import com.fireworm.colourfun.data.artwork.ArtworkRepository
-import com.fireworm.colourfun.generator.LineArtCodec
+import com.fireworm.colourfun.data.db.ColourFunDatabase
+import com.fireworm.colourfun.data.db.documentSize
+import com.fireworm.colourfun.data.files.ArtworkFileStore
+import com.fireworm.colourfun.drawing.document.DocumentSize
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -28,7 +28,7 @@ class ArtworkRepositoryTest {
 
     @get:Rule val folder = TemporaryFolder()
 
-    private val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ArtworkDatabase::class.java)
+    private val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ColourFunDatabase::class.java)
         .allowMainThreadQueries()
         .build()
     private var clock = 1_000L
@@ -47,10 +47,21 @@ class ArtworkRepositoryTest {
         val restored = checkNotNull(repository.load("a"))
         assertArrayEquals(paint.pixels(), checkNotNull(restored.paint).pixels())
         assertTrue(restored.paint.isMutable)
-        assertEquals(LineArtCodec.encode(testLineArt()), LineArtCodec.encode(restored.lineArt))
-        assertEquals(9L, restored.entity.seed)
+        assertArrayEquals(testOutlinePng, restored.outlinePng)
+        assertEquals("animals/test_01", restored.entity.pictureId)
         assertTrue(repository.thumbnailFile("a").length() > 0)
         assertTrue(File(folder.root, "a").listFiles()!!.none { it.name.endsWith(".tmp") })
+    }
+
+    @Test
+    fun `the document geometry is stored as created`() = runBlocking {
+        // A 20:9 document at a quarter of full size: the 512 × 384 picture centred in 853 × 384.
+        repository.save(testSnapshot("wide", testPaint(853, 384), scale = 0.25f))
+
+        val entity = checkNotNull(repository.load("wide")).entity
+        assertEquals(DocumentSize(853, 384, 0.25f), entity.documentSize)
+        assertEquals((853 - 512) / 2, entity.pictureLeft)
+        assertEquals(0, entity.pictureTop)
     }
 
     @Test

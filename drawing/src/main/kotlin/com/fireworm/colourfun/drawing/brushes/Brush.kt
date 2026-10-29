@@ -5,7 +5,7 @@ import android.graphics.Canvas
 import android.graphics.PorterDuff
 import android.graphics.RectF
 import android.graphics.Shader
-import com.fireworm.colourfun.generator.random.Pcg32
+import com.fireworm.colourfun.drawing.random.Pcg32
 
 /** A point of a stroke in document pixels. */
 data class StrokePoint(val x: Float, val y: Float, val timeMs: Long, val pressure: Float = 1f)

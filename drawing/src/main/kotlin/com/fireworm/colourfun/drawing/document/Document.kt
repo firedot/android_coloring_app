@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
+import androidx.core.graphics.createBitmap
 import androidx.core.graphics.withSave
 import com.fireworm.colourfun.drawing.layers.OutlineLayer
 import com.fireworm.colourfun.drawing.layers.PaintLayer
@@ -54,5 +55,17 @@ class Document(val size: DocumentSize, outlineBitmap: Bitmap) {
             }
         }
         outline.draw(canvas)
+    }
+
+    /**
+     * The picture rectangle only, flattened (paper → paint → outline): what is saved to photos.
+     * The side margins of a wide screen are left out, so every export has the picture's 4:3 shape.
+     */
+    fun flattenPicture(): Bitmap {
+        val image = createBitmap(size.pictureWidth, size.pictureHeight)
+        val canvas = Canvas(image)
+        canvas.translate(-size.pictureLeft.toFloat(), -size.pictureTop.toFloat())
+        draw(canvas)
+        return image
     }
 }

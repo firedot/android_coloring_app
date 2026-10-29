@@ -5,8 +5,12 @@ import android.view.MotionEvent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,46 +20,72 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.dp
 import com.fireworm.colourfun.drawing.DrawingEngine
 import com.fireworm.colourfun.drawing.brushes.StrokePoint
-import com.fireworm.colourfun.drawing.document.DocumentCoords
+import com.fireworm.colourfun.drawing.viewport.Viewport
+import kotlinx.coroutines.flow.StateFlow
+
+/** A stroke this short when a second finger lands was the start of a pinch, so it is discarded. */
+internal const val SHORT_STROKE_MS = 150L
+internal val ShortStrokeTravel = 24.dp
 
 /**
- * Shows the engine's document fit-centred and feeds touches straight into the engine.
+ * Shows the engine's document through [viewport] and feeds touches straight into the engine.
  *
- * With a drawing tool or the eraser, one finger draws and a second finger cancels the stroke in
- * progress, as does a touch the system flags as a palm (API 33+). With any other tool (fill,
- * pipette), a touch reports its document position to [onTap]. Space outside the document is left
- * to the caller's background.
+ * - While a panel is open ([panelOpen]), a touch only closes it through [onDismissPanels]; nothing
+ *   is painted for the rest of that gesture.
+ * - One finger uses the current tool. A drawing tool or the eraser strokes; fill and pipette report
+ *   the touch-down position to [onTap] when the finger lifts, so the first finger of a pinch never
+ *   fills.
+ * - A second finger ends the stroke in progress: it is discarded if it is short (under
+ *   [SHORT_STROKE_MS] and [ShortStrokeTravel]), otherwise kept. From then on the gesture zooms and
+ *   pans through [onTransform] until all fingers are up, with no drawing even if one finger remains.
+ * - A touch the system flags as a palm (API 33+) cancels the stroke.
  *
- * @param onTap called with the document position of a tap with a non-drawing tool.
- * @param onStrokeActiveChange called with `true` when a stroke starts and `false` when it ends.
+ * Space outside the document is left to the caller's background (letterboxing).
+ *
+ * @param onViewSize the canvas size in pixels, when it is laid out.
+ * @param onTransform one frame of a pinch: zoom factor around the focus, then pan, in screen pixels.
+ * @param onActiveChange `true` while a stroke or a pinch is in progress.
  * @param onFrameDrawn called after each draw with the fraction of the document that changed.
  */
 @Composable
 fun DrawingSurface(
     engine: DrawingEngine,
+    viewport: StateFlow<Viewport?>,
     tool: Tool,
     color: Int,
     stayInsideLines: Boolean,
     onTap: (x: Float, y: Float) -> Unit,
+    onViewSize: (width: Float, height: Float) -> Unit,
+    onTransform: (factor: Float, focus: Offset, pan: Offset) -> Unit,
     modifier: Modifier = Modifier,
-    onStrokeActiveChange: (Boolean) -> Unit = {},
+    panelOpen: Boolean = false,
+    onDismissPanels: () -> Unit = {},
+    onActiveChange: (Boolean) -> Unit = {},
     onFrameDrawn: (dirtyFraction: Float) -> Unit = {},
 ) {
-    // Read only inside the draw lambda, so a stroke update redraws without recomposing.
+    // Read only inside the draw lambda and the gesture loop, so strokes and zoom redraw without
+    // recomposing.
     val frameVersion = engine.frameVersion.collectAsState()
+    val currentViewport: State<Viewport?> = viewport.collectAsState()
     val currentTool by rememberUpdatedState(tool)
     val currentColor by rememberUpdatedState(color)
     val currentStayInsideLines by rememberUpdatedState(stayInsideLines)
     val currentOnTap by rememberUpdatedState(onTap)
-    val currentOnStrokeActiveChange by rememberUpdatedState(onStrokeActiveChange)
+    val currentOnTransform by rememberUpdatedState(onTransform)
+    val currentOnActiveChange by rememberUpdatedState(onActiveChange)
+    val currentPanelOpen by rememberUpdatedState(panelOpen)
+    val currentOnDismissPanels by rememberUpdatedState(onDismissPanels)
     val documentSize = engine.document.size
     val documentPixels = documentSize.width.toFloat() * documentSize.height
     var strokeActive by remember { mutableStateOf(false) }
@@ -67,57 +97,96 @@ fun DrawingSurface(
     }
 
     val input = Modifier.pointerInput(engine) {
+        val shortTravel = ShortStrokeTravel.toPx()
         awaitEachGesture {
             val down = awaitFirstDown()
             down.consume()
-            val coords = DocumentCoords.fit(size.width.toFloat(), size.height.toFloat(), documentSize)
-            val spec = currentTool.strokeSpec
-            if (spec == null) {
-                // Fill and pipette act on touch-down for instant feedback; the rest of the gesture is ignored.
-                currentOnTap(coords.toDocumentX(down.position.x), coords.toDocumentY(down.position.y))
+            if (currentPanelOpen) {
+                currentOnDismissPanels()
+                // Swallow the rest of this gesture, whatever the fingers do.
+                do {
+                    val event = awaitPointerEvent()
+                    event.changes.forEach { it.consume() }
+                } while (event.changes.any { it.pressed })
                 return@awaitEachGesture
             }
-            engine.beginStroke(spec, currentColor, down.toStrokePoint(coords), currentStayInsideLines)
-            strokeActive = true
-            currentOnStrokeActiveChange(true)
+            val view = currentViewport.value ?: return@awaitEachGesture
+            val spec = currentTool.strokeSpec
+            var mode = if (spec == null) GestureMode.Tap else GestureMode.Draw
+            if (spec != null) {
+                engine.beginStroke(spec, currentColor, down.toStrokePoint(view), currentStayInsideLines)
+                strokeActive = true
+            }
+            currentOnActiveChange(true)
+            var travel = 0f
 
-            var drawing = true
             try {
                 while (true) {
                     val event = awaitPointerEvent()
-                    if (drawing && event.changes.any { it.id != down.id && it.pressed }) {
-                        engine.cancelStroke()
-                        drawing = false
+                    if (mode != GestureMode.Transform && event.changes.count { it.pressed } >= 2) {
+                        if (mode == GestureMode.Draw) {
+                            val elapsed = event.changes.maxOf { it.uptimeMillis } - down.uptimeMillis
+                            if (elapsed < SHORT_STROKE_MS && travel < shortTravel) engine.cancelStroke() else engine.endStroke()
+                            strokeActive = false
+                        }
+                        mode = GestureMode.Transform
                     }
-                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                    if (drawing && !change.pressed && event.motionEvent?.wasCanceled() == true) {
-                        // The system decided this touch was a palm: drop the stroke rather than keep it.
-                        engine.cancelStroke()
-                        drawing = false
+
+                    when (mode) {
+                        GestureMode.Transform -> {
+                            val zoom = event.calculateZoom()
+                            val pan = event.calculatePan()
+                            val focus = event.calculateCentroid(useCurrent = false)
+                            if (focus.isSpecified && (zoom != 1f || pan != Offset.Zero)) currentOnTransform(zoom, focus, pan)
+                            event.changes.forEach { it.consume() }
+                            if (event.changes.none { it.pressed }) break
+                        }
+                        GestureMode.Draw -> {
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed && event.motionEvent?.wasCanceled() == true) {
+                                // The system decided this touch was a palm: drop the stroke rather than keep it.
+                                engine.cancelStroke()
+                                strokeActive = false
+                                break
+                            }
+                            if (change.positionChanged()) {
+                                travel += (change.position - change.previousPosition).getDistance()
+                                engine.extendStroke(change.strokePoints(currentViewport.value ?: view))
+                            }
+                            change.consume()
+                            if (!change.pressed) {
+                                engine.endStroke()
+                                strokeActive = false
+                                break
+                            }
+                        }
+                        GestureMode.Tap -> {
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            change.consume()
+                            if (!change.pressed) {
+                                if (event.motionEvent?.wasCanceled() != true) {
+                                    currentOnTap(view.toDocumentX(down.position.x), view.toDocumentY(down.position.y))
+                                }
+                                break
+                            }
+                        }
                     }
-                    if (drawing && change.positionChanged()) {
-                        engine.extendStroke(change.strokePoints(coords))
-                    }
-                    change.consume()
-                    if (!change.pressed) break
                 }
-                if (drawing) engine.endStroke()
-                drawing = false
             } finally {
                 // The gesture was interrupted (e.g. the surface left the screen).
-                if (drawing) engine.cancelStroke()
+                if (strokeActive) engine.cancelStroke()
                 strokeActive = false
-                currentOnStrokeActiveChange(false)
+                currentOnActiveChange(false)
             }
         }
     }
 
-    Canvas(modifier.then(input)) {
+    Canvas(modifier.onSizeChanged { onViewSize(it.width.toFloat(), it.height.toFloat()) }.then(input)) {
         frameVersion.value
-        val coords = DocumentCoords.fit(size.width, size.height, documentSize)
+        val view = currentViewport.value ?: return@Canvas
         withTransform({
-            translate(coords.left, coords.top)
-            scale(coords.scale, coords.scale, pivot = Offset.Zero)
+            translate(view.offsetX, view.offsetY)
+            scale(view.zoom, view.zoom, pivot = Offset.Zero)
         }) {
             drawIntoCanvas { engine.draw(it.nativeCanvas) }
         }
@@ -126,19 +195,21 @@ fun DrawingSurface(
     }
 }
 
+private enum class GestureMode { Draw, Tap, Transform }
+
 /** API 33+: the lifted pointer was accidental, e.g. a resting palm, and its gesture should be undone. */
 internal fun MotionEvent.wasCanceled(): Boolean =
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && (flags and MotionEvent.FLAG_CANCELED) != 0
 
-private fun PointerInputChange.toStrokePoint(coords: DocumentCoords) = StrokePoint(
-    x = coords.toDocumentX(position.x),
-    y = coords.toDocumentY(position.y),
+private fun PointerInputChange.toStrokePoint(view: Viewport) = StrokePoint(
+    x = view.toDocumentX(position.x),
+    y = view.toDocumentY(position.y),
     timeMs = uptimeMillis,
     pressure = pressure,
 )
 
 /** The MotionEvent's historical points since the last event, then the current one. */
-private fun PointerInputChange.strokePoints(coords: DocumentCoords): List<StrokePoint> =
+private fun PointerInputChange.strokePoints(view: Viewport): List<StrokePoint> =
     historical.map {
-        StrokePoint(coords.toDocumentX(it.position.x), coords.toDocumentY(it.position.y), it.uptimeMillis, pressure)
-    } + toStrokePoint(coords)
+        StrokePoint(view.toDocumentX(it.position.x), view.toDocumentY(it.position.y), it.uptimeMillis, pressure)
+    } + toStrokePoint(view)

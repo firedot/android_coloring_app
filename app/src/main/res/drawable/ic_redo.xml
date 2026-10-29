@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Material "redo" icon (Apache 2.0). -->
+<!-- A curved arrow turning forward to the right; mirrored in right-to-left layouts. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -7,6 +7,12 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M4,18.5C4,12 8.5,8.5 14,8.5H17" />
+    <path
         android:fillColor="#FF000000"
-        android:pathData="M18.4,10.6C16.55,8.99 14.15,8 11.5,8c-4.65,0 -8.58,3.03 -9.96,7.22L3.9,16c1.05,-3.19 4.05,-5.5 7.6,-5.5 1.95,0 3.73,0.72 5.12,1.88L13,16h9V7l-3.6,3.6z" />
+        android:pathData="M21.5,8.5L15.5,3.5V13.5Z" />
 </vector>

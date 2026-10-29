@@ -1,15 +1,19 @@
 package com.fireworm.colourfun.ui.canvas
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fireworm.colourfun.data.settings.Settings
 import com.fireworm.colourfun.data.settings.SettingsRepository
+import com.fireworm.colourfun.domain.AutosaveUseCase
 import com.fireworm.colourfun.domain.ExportToGalleryUseCase
-import com.fireworm.colourfun.domain.LoadPictureUseCase
-import com.fireworm.colourfun.domain.NewPictureUseCase
-import com.fireworm.colourfun.domain.Picture
-import com.fireworm.colourfun.domain.SaveArtworkUseCase
+import com.fireworm.colourfun.domain.LoadArtworkUseCase
+import com.fireworm.colourfun.domain.NewArtworkUseCase
+import com.fireworm.colourfun.domain.PreparedArtwork
 import com.fireworm.colourfun.drawing.DrawingConfig
 import com.fireworm.colourfun.drawing.DrawingEngine
 import com.fireworm.colourfun.drawing.brushes.BrushSize
@@ -18,8 +22,8 @@ import com.fireworm.colourfun.drawing.brushes.Medium
 import com.fireworm.colourfun.drawing.document.Document
 import com.fireworm.colourfun.drawing.history.History
 import com.fireworm.colourfun.drawing.regions.RegionMaskCache
-import com.fireworm.colourfun.generator.LineArt
-import com.fireworm.colourfun.ui.palette.DefaultColor
+import com.fireworm.colourfun.drawing.viewport.Viewport
+import com.fireworm.colourfun.ui.theme.Palette
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.UUID
 import javax.inject.Inject
@@ -55,7 +59,7 @@ sealed interface Tool {
     data class Erase(val size: BrushSize) : Tool
 
     companion object {
-        val Pen = Draw(BrushSpec(Medium.Pen, BrushSize.Medium))
+        val Default = Draw(BrushSpec(Medium.Pencil, BrushSize.Medium))
     }
 }
 
@@ -88,18 +92,30 @@ internal fun decodeTool(text: String): Tool? {
     }.getOrNull()
 }
 
+/** The floating controls that open a panel; only one is open at a time. */
+enum class Panel { Palette, Tools }
+
 data class ColoringUiState(
     val loading: Boolean = true,
-    val tool: Tool = Tool.Pen,
-    val color: Int = DefaultColor,
+    val tool: Tool = Tool.Default,
+    val color: Int = Palette.Default.argb,
     /** Size for the drawing mediums; kept when switching between them. */
     val size: BrushSize = BrushSize.Medium,
     val stayInsideLines: Boolean = true,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
+    /** Shows the Fit button. */
+    val zoomedIn: Boolean = false,
+    val openPanel: Panel? = null,
 )
 
 sealed interface ColoringEvent {
+    /** Opens [panel], closing any other; closes it if it is already open. */
+    data class TogglePanel(val panel: Panel) : ColoringEvent
+
+    /** The canvas or the back button was used while a panel was open. */
+    data object ClosePanels : ColoringEvent
+
     /** Selecting [Tool.Pipette] while it is already active returns to the previous tool. */
     data class SelectTool(val tool: Tool) : ColoringEvent
     data class SelectColor(val color: Int) : ColoringEvent
@@ -110,7 +126,9 @@ sealed interface ColoringEvent {
     data class TapAt(val x: Float, val y: Float) : ColoringEvent
     data object Undo : ColoringEvent
     data object Redo : ColoringEvent
-    data object NewAnimal : ColoringEvent
+
+    /** Animates back to the whole picture. */
+    data object FitToScreen : ColoringEvent
 
     /** The screen is going away (onStop): save now rather than after the autosave delay. */
     data object Save : ColoringEvent
@@ -119,27 +137,40 @@ sealed interface ColoringEvent {
     data object ExportToGallery : ColoringEvent
 }
 
+/**
+ * The open panel after [event]. Choosing anything in a panel, or using another control, collapses
+ * it; only saving and taps that reach the canvas leave it as it is.
+ */
+internal fun Panel?.after(event: ColoringEvent): Panel? = when (event) {
+    is ColoringEvent.TogglePanel -> if (this == event.panel) null else event.panel
+    is ColoringEvent.TapAt, ColoringEvent.Save, ColoringEvent.ExportToGallery, ColoringEvent.ToggleStayInsideLines -> this
+    else -> null
+}
+
 /** One-off results for the screen to show. */
 sealed interface ColoringEffect {
     data object Exported : ColoringEffect
     data object ExportFailed : ColoringEffect
+
+    /** Neither the saved artwork nor the picture could be opened; back to the library. */
+    data object Unavailable : ColoringEffect
 }
 
 /**
  * Owns the drawing engine for the current picture, so it survives configuration changes.
  * Raw stroke input bypasses this ViewModel and goes to the engine directly.
  *
- * The picture is saved 2 s after the last change and on [ColoringEvent.Save]. A new picture gets its
- * artwork id on the first save, so untouched animals never reach the gallery. Only that id is kept
- * in [savedState]; after process death the picture is restored from its files.
+ * The artwork is saved 2 s after the last change and on [ColoringEvent.Save]. A new artwork gets its
+ * id on the first save, so untouched pictures never reach "my pictures". Only that id is kept in
+ * [savedState]; after process death the artwork is restored from its files.
  */
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
 class CanvasViewModel @Inject constructor(
     private val config: DrawingConfig,
-    private val newPicture: NewPictureUseCase,
-    private val loadPicture: LoadPictureUseCase,
-    private val saveArtwork: SaveArtworkUseCase,
+    private val newArtwork: NewArtworkUseCase,
+    private val loadArtwork: LoadArtworkUseCase,
+    private val autosave: AutosaveUseCase,
     private val exportToGallery: ExportToGalleryUseCase,
     private val settings: SettingsRepository,
     private val savedState: SavedStateHandle,
@@ -153,13 +184,27 @@ class CanvasViewModel @Inject constructor(
     /** `null` while the picture is being prepared. */
     val engine: StateFlow<DrawingEngine?> = _engine.asStateFlow()
 
+    private val _viewport = MutableStateFlow<Viewport?>(null)
+
+    /**
+     * How the document is shown; `null` until both the document and the view size are known. View
+     * state only: every artwork opens at fit, and zoom is never undone or saved.
+     */
+    val viewport: StateFlow<Viewport?> = _viewport.asStateFlow()
+
+    /** The canvas size in pixels, once laid out. */
+    private var viewSize: Pair<Float, Float>? = null
+
+    private var fitJob: Job? = null
+
     private val _effects = Channel<ColoringEffect>(Channel.BUFFERED)
     val effects: Flow<ColoringEffect> = _effects.receiveAsFlow()
 
-    private var pictureJob: Job? = null
+    /** The artwork being coloured. */
+    private var artwork: PreparedArtwork? = null
 
-    /** The line art being coloured, saved as `outline.json`. */
-    private var lineArt: LineArt? = null
+    /** The library picture a new artwork starts from (navigation argument). */
+    private val pictureId: String? = savedState[PICTURE_ID]
 
     /** `null` until the current picture is first saved. Also the navigation argument. */
     private var artworkId: String?
@@ -172,15 +217,20 @@ class CanvasViewModel @Inject constructor(
     private var savedEdits = 0L
 
     /** Where [Tool.Pipette] returns to. */
-    private var toolBeforePipette: Tool = Tool.Pen
+    private var toolBeforePipette: Tool = Tool.Default
 
     init {
-        pictureJob = viewModelScope.launch {
+        viewModelScope.launch {
             restore(settings.settings.first())
             rememberToolAndColor()
-            val picture = artworkId?.let { loadPicture(it) }
-            if (picture == null) artworkId = null
-            show(picture ?: newPicture())
+            val restored = artworkId?.let { loadArtwork(it) }
+            if (restored == null) artworkId = null
+            val prepared = restored ?: pictureId?.let { runCatching { newArtwork(it) }.getOrNull() }
+            if (prepared == null) {
+                _effects.send(ColoringEffect.Unavailable)
+                return@launch
+            }
+            show(prepared)
         }
         viewModelScope.launch {
             settings.settings.map { it.stayInsideLines }.distinctUntilChanged().collect { stayInside ->
@@ -193,6 +243,11 @@ class CanvasViewModel @Inject constructor(
                 .collect { (canUndo, canRedo) -> _uiState.update { it.copy(canUndo = canUndo, canRedo = canRedo) } }
         }
         viewModelScope.launch {
+            _viewport.map { it?.isZoomedIn == true }.distinctUntilChanged().collect { zoomedIn ->
+                _uiState.update { it.copy(zoomedIn = zoomedIn) }
+            }
+        }
+        viewModelScope.launch {
             _engine.filterNotNull()
                 .flatMapLatest { it.edits }
                 .debounce(AUTOSAVE_DELAY_MS)
@@ -201,7 +256,9 @@ class CanvasViewModel @Inject constructor(
     }
 
     fun onEvent(event: ColoringEvent) {
+        _uiState.update { it.copy(openPanel = it.openPanel.after(event)) }
         when (event) {
+            is ColoringEvent.TogglePanel, ColoringEvent.ClosePanels -> Unit
             is ColoringEvent.SelectTool -> selectTool(event.tool)
             is ColoringEvent.SelectColor -> _uiState.update {
                 // Choosing a palette colour also ends picking one from the picture.
@@ -214,45 +271,67 @@ class CanvasViewModel @Inject constructor(
             is ColoringEvent.TapAt -> tapAt(event.x, event.y)
             ColoringEvent.Undo -> _engine.value?.undo()
             ColoringEvent.Redo -> _engine.value?.redo()
-            ColoringEvent.NewAnimal -> newAnimal()
+            ColoringEvent.FitToScreen -> fitToScreen()
             ColoringEvent.Save -> save()
             ColoringEvent.ExportToGallery -> export()
         }
     }
 
-    /** Replaces the picture with a newly generated animal; the old one stays on screen until it is ready. */
-    private fun newAnimal() {
-        save()
-        pictureJob?.cancel()
-        _uiState.update { it.copy(loading = true) }
-        pictureJob = viewModelScope.launch {
-            val picture = newPicture()
-            // Anything drawn on the old picture while the new one was generated.
-            save()
-            artworkId = null
-            show(picture)
-        }
-    }
-
-    private fun show(picture: Picture) {
-        _engine.value?.cancelStroke()
-        val document = Document(config.documentSize, picture.outline)
-        picture.paint?.let(document.paint::load)
-        lineArt = picture.lineArt
+    private fun show(prepared: PreparedArtwork) {
+        val document = Document(prepared.size, prepared.outline)
+        prepared.paint?.let(document.paint::load)
+        artwork = prepared
         savedEdits = 0
         val history = History(budgetBytes = config.historyBudgetBytes, scope = viewModelScope)
-        _engine.value = DrawingEngine(document, RegionMaskCache(picture.regions), history)
+        _engine.value = DrawingEngine(document, RegionMaskCache(prepared.regions), history)
+        resetViewport()
         _uiState.update { it.copy(loading = false) }
     }
 
-    /** Saves the current picture if it changed since the last save. */
+    /** The canvas was laid out at a new size: show the whole document. */
+    fun onViewSize(width: Float, height: Float) {
+        if (width <= 0f || height <= 0f || viewSize == width to height) return
+        viewSize = width to height
+        resetViewport()
+    }
+
+    /**
+     * One frame of a two-finger gesture, straight from the canvas (not through [onEvent], like all
+     * raw touch): zoom by [factor] around ([focusX], [focusY]), then pan, in screen pixels.
+     */
+    fun transformViewport(factor: Float, focusX: Float, focusY: Float, panX: Float, panY: Float) {
+        fitJob?.cancel()
+        _viewport.update { it?.transform(factor, focusX, focusY, panX, panY) }
+    }
+
+    private fun resetViewport() {
+        fitJob?.cancel()
+        val document = _engine.value?.document ?: return
+        val (width, height) = viewSize ?: return
+        _viewport.value = Viewport.of(document.size.width, document.size.height, width, height)
+    }
+
+    /** Springs back to fit; on the UI dispatcher, whose frame clock drives the animation. */
+    private fun fitToScreen() {
+        val start = _viewport.value ?: return
+        val target = start.fitted()
+        fitJob?.cancel()
+        fitJob = viewModelScope.launch(AndroidUiDispatcher.Main) {
+            animate(0f, 1f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { t, _ ->
+                _viewport.value = start.lerp(target, t)
+            }
+            _viewport.value = target
+        }
+    }
+
+    /** Saves the current artwork if it changed since the last save. */
     private fun save() {
         val engine = _engine.value ?: return
-        val art = lineArt ?: return
+        val current = artwork ?: return
         val edits = engine.edits.value
         if (edits == savedEdits) return
         val id = artworkId ?: UUID.randomUUID().toString().also { artworkId = it }
-        saveArtwork(id, art, engine.document)
+        autosave(id, current, engine.document)
         savedEdits = edits
     }
 
@@ -327,8 +406,9 @@ class CanvasViewModel @Inject constructor(
     }
 
     companion object {
-        /** Navigation argument and saved-state key. */
+        /** Navigation arguments: a saved artwork to continue, or a library picture to start from. */
         const val ARTWORK_ID = "artworkId"
+        const val PICTURE_ID = "pictureId"
 
         private const val AUTOSAVE_DELAY_MS = 2_000L
         private const val SETTINGS_DELAY_MS = 500L

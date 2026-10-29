@@ -1,11 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Material "format_color_fill" icon (Apache 2.0). -->
+<!-- A tipped paint bucket with a drop falling from its lip. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
+    <group
+        android:rotation="32"
+        android:pivotX="10"
+        android:pivotY="14">
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M4,9H16L14.6,19.5Q14.4,21 12.9,21H7.1Q5.6,21 5.4,19.5Z" />
+        <path
+            android:strokeColor="#FF000000"
+            android:strokeWidth="1.8"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M5.6,8.4C5.6,3.6 14.4,3.6 14.4,8.4" />
+    </group>
     <path
         android:fillColor="#FF000000"
-        android:pathData="M16.56,8.94L7.62,0 6.21,1.41l2.38,2.38 -5.15,5.15c-0.59,0.59 -0.59,1.54 0,2.12l5.5,5.5c0.29,0.29 0.68,0.44 1.06,0.44s0.77,-0.15 1.06,-0.44l5.5,-5.5c0.59,-0.58 0.59,-1.53 0,-2.12zM5.21,10L10,5.21 14.79,10H5.21zM19,11.5s-2,2.17 -2,3.5c0,1.1 0.9,2 2,2s2,-0.9 2,-2c0,-1.33 -2,-3.5 -2,-3.5z" />
+        android:pathData="M19.5,12.5C19.5,12.5 22,15.7 22,17.3A2.5,2.5 0,0 1,17 17.3C17,15.7 19.5,12.5 19.5,12.5Z" />
 </vector>

@@ -1,11 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Material "colorize" icon (Apache 2.0). -->
+<!-- An eyedropper: rubber bulb, collar and a glass tube. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <path
-        android:fillColor="#FF000000"
-        android:pathData="M20.71,5.63l-2.34,-2.34c-0.39,-0.39 -1.02,-0.39 -1.41,0l-3.12,3.12 -1.93,-1.91 -1.41,1.41 1.42,1.42L3,16.25V21h4.75l8.92,-8.92 1.42,1.42 1.41,-1.41 -1.92,-1.92 3.12,-3.12c0.4,-0.4 0.4,-1.03 0.01,-1.42zM6.92,19L5,17.08l8.06,-8.06 1.92,1.92L6.92,19z" />
+    <group
+        android:rotation="45"
+        android:pivotX="12"
+        android:pivotY="12">
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M9.5,7V4.2a2.5,2.5 0,0 1,5 0V7Z" />
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M8,7.6H16V9.6H8Z" />
+        <path
+            android:fillColor="#FF000000"
+            android:fillType="evenOdd"
+            android:pathData="M10.2,10.2H13.8V18.6L12,22L10.2,18.6ZM11.1,11.1V18.3L12,20L12.9,18.3V11.1Z" />
+    </group>
 </vector>

@@ -49,15 +49,18 @@ class StrokeBenchmark {
             pressHome()
             startActivityAndWait()
             waitForPicture()
+            device.findObject(By.desc("Tools"))?.click()
             device.findObject(By.desc(tool))?.click()
         },
     ) {
         repeat(STROKES) { drawWave(it) }
     }
 
-    /** The new-animal button is disabled while the picture is generated. */
+    /** Opens the first library picture; the canvas appears once it is decoded and labelled. */
     private fun MacrobenchmarkScope.waitForPicture() {
-        device.wait(Until.hasObject(By.desc("New animal").enabled(true)), 15_000)
+        device.wait(Until.hasObject(By.desc("Colour this picture")), 15_000)
+        device.findObject(By.desc("Colour this picture"))?.click()
+        device.wait(Until.hasObject(By.desc("Picture to colour")), 15_000)
     }
 
     /** A sine wave across the middle of the screen, where the picture is in either orientation. */
