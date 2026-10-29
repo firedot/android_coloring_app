@@ -18,6 +18,8 @@ class StrokeCommand(
     override val after: PixelPatch,
     val spec: BrushSpec,
     val color: Int,
+    /** The brush randomness seed, so the stroke can be rendered again identically. */
+    val seed: Long,
 ) : Command
 
 class FillCommand(

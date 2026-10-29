@@ -139,7 +139,7 @@ class DrawingEngineHistoryTest {
         engine.endStroke()
     }
 
-    private fun randomSpec(random: Random) = BrushSpec(Medium.Pen, BrushSize.entries.random(random))
+    private fun randomSpec(random: Random) = BrushSpec(Medium.entries.random(random), BrushSize.entries.random(random))
 
     private fun randomPoint(random: Random): StrokePoint {
         clockMs += 8

@@ -4,9 +4,14 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -22,8 +27,8 @@ import com.fireworm.colourfun.drawing.document.DocumentCoords
 /**
  * Shows the engine's document fit-centred and feeds touches straight into the engine.
  *
- * With a drawing tool, one finger draws and a second finger cancels the stroke in progress. With any
- * other tool (fill, pipette), a touch reports its document position to [onTap]. Space outside the
+ * With a drawing tool or the eraser, one finger draws and a second finger cancels the stroke in
+ * progress. With any other tool (fill, pipette), a touch reports its document position to [onTap]. Space outside the
  * document is left to the caller's background.
  *
  * @param onTap called with the document position of a tap with a non-drawing tool.
@@ -50,21 +55,27 @@ fun DrawingSurface(
     val currentOnStrokeActiveChange by rememberUpdatedState(onStrokeActiveChange)
     val documentSize = engine.document.size
     val documentPixels = documentSize.width.toFloat() * documentSize.height
+    var strokeActive by remember { mutableStateOf(false) }
+
+    // While a stroke is in progress, a frame tick lets brushes like the spray build up where the finger
+    // rests. Frame time and touch times share the uptime clock.
+    LaunchedEffect(engine, strokeActive) {
+        if (strokeActive) while (true) withFrameNanos { engine.tick(it / 1_000_000) }
+    }
 
     val input = Modifier.pointerInput(engine) {
         awaitEachGesture {
             val down = awaitFirstDown()
             down.consume()
             val coords = DocumentCoords.fit(size.width.toFloat(), size.height.toFloat(), documentSize)
-            val drawTool = when (val selected = currentTool) {
-                is Tool.Draw -> selected
-                Tool.Fill, Tool.Pipette -> {
-                    // Act on touch-down for instant feedback; the rest of the gesture is ignored.
-                    currentOnTap(coords.toDocumentX(down.position.x), coords.toDocumentY(down.position.y))
-                    return@awaitEachGesture
-                }
+            val spec = currentTool.strokeSpec
+            if (spec == null) {
+                // Fill and pipette act on touch-down for instant feedback; the rest of the gesture is ignored.
+                currentOnTap(coords.toDocumentX(down.position.x), coords.toDocumentY(down.position.y))
+                return@awaitEachGesture
             }
-            engine.beginStroke(drawTool.spec, currentColor, down.toStrokePoint(coords), currentStayInsideLines)
+            engine.beginStroke(spec, currentColor, down.toStrokePoint(coords), currentStayInsideLines)
+            strokeActive = true
             currentOnStrokeActiveChange(true)
 
             var drawing = true
@@ -87,6 +98,7 @@ fun DrawingSurface(
             } finally {
                 // The gesture was interrupted (e.g. the surface left the screen).
                 if (drawing) engine.cancelStroke()
+                strokeActive = false
                 currentOnStrokeActiveChange(false)
             }
         }

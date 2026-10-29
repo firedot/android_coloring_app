@@ -32,15 +32,28 @@ sealed interface Tool {
     /** Picks a colour from the picture, then returns to the tool used before it. */
     data object Pipette : Tool
 
+    /** Rubs paint out back to the paper. */
+    data class Erase(val size: BrushSize) : Tool
+
     companion object {
         val Pen = Draw(BrushSpec(Medium.Pen, BrushSize.Medium))
     }
 }
 
+/** What a stroke on the canvas draws with, or `null` for tap tools (fill, pipette). */
+val Tool.strokeSpec: BrushSpec?
+    get() = when (this) {
+        is Tool.Draw -> spec
+        is Tool.Erase -> BrushSpec(Medium.Eraser, size)
+        Tool.Fill, Tool.Pipette -> null
+    }
+
 data class ColoringUiState(
     val loading: Boolean = true,
     val tool: Tool = Tool.Pen,
     val color: Int = DefaultColor,
+    /** Size for the drawing mediums; kept when switching between them. */
+    val size: BrushSize = BrushSize.Medium,
     val stayInsideLines: Boolean = true,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
@@ -50,6 +63,7 @@ sealed interface ColoringEvent {
     /** Selecting [Tool.Pipette] while it is already active returns to the previous tool. */
     data class SelectTool(val tool: Tool) : ColoringEvent
     data class SelectColor(val color: Int) : ColoringEvent
+    data class SelectSize(val size: BrushSize) : ColoringEvent
     data object ToggleStayInsideLines : ColoringEvent
 
     /** A tap with a non-drawing tool (fill, pipette), in document pixels. */
@@ -105,6 +119,7 @@ class CanvasViewModel @Inject constructor(
                 // Choosing a palette colour also ends picking one from the picture.
                 it.copy(color = event.color, tool = if (it.tool == Tool.Pipette) toolBeforePipette else it.tool)
             }
+            is ColoringEvent.SelectSize -> selectSize(event.size)
             ColoringEvent.ToggleStayInsideLines -> _uiState.update { it.copy(stayInsideLines = !it.stayInsideLines) }
             is ColoringEvent.TapAt -> tapAt(event.x, event.y)
             ColoringEvent.Undo -> _engine.value?.undo()
@@ -122,13 +137,23 @@ class CanvasViewModel @Inject constructor(
         _uiState.update { it.copy(tool = next) }
     }
 
+    private fun selectSize(size: BrushSize) {
+        fun Tool.resized() = when (this) {
+            is Tool.Draw -> Tool.Draw(spec.copy(size = size))
+            is Tool.Erase -> Tool.Erase(size)
+            Tool.Fill, Tool.Pipette -> this
+        }
+        toolBeforePipette = toolBeforePipette.resized()
+        _uiState.update { it.copy(size = size, tool = it.tool.resized()) }
+    }
+
     private fun tapAt(x: Float, y: Float) {
         val engine = _engine.value ?: return
         val state = _uiState.value
         when (state.tool) {
             Tool.Fill -> viewModelScope.launch { engine.fill(x, y, state.color) }
             Tool.Pipette -> _uiState.update { it.copy(color = engine.sampleColor(x, y), tool = toolBeforePipette) }
-            is Tool.Draw -> Unit
+            is Tool.Draw, is Tool.Erase -> Unit
         }
     }
 }

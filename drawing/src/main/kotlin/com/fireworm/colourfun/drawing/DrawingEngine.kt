@@ -1,27 +1,33 @@
 package com.fireworm.colourfun.drawing
 
 import android.graphics.Bitmap
+import android.graphics.BitmapShader
 import android.graphics.Canvas
+import android.graphics.ComposeShader
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.Shader
 import com.fireworm.colourfun.drawing.brushes.Brush
 import com.fireworm.colourfun.drawing.brushes.BrushSpec
 import com.fireworm.colourfun.drawing.brushes.StrokeContext
 import com.fireworm.colourfun.drawing.brushes.StrokePoint
 import com.fireworm.colourfun.drawing.document.Document
+import com.fireworm.colourfun.drawing.document.StrokePreview
 import com.fireworm.colourfun.drawing.history.FillCommand
 import com.fireworm.colourfun.drawing.history.History
 import com.fireworm.colourfun.drawing.history.PixelPatch
 import com.fireworm.colourfun.drawing.history.StrokeCommand
 import com.fireworm.colourfun.drawing.pipette.ColorSampler
+import com.fireworm.colourfun.drawing.random.Pcg32
 import com.fireworm.colourfun.drawing.regions.RegionMap
 import com.fireworm.colourfun.drawing.regions.RegionMaskCache
 import com.fireworm.colourfun.drawing.stroke.Resampler
 import com.fireworm.colourfun.drawing.stroke.StrokeSmoother
 import kotlin.math.roundToInt
+import kotlin.random.Random
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -62,35 +68,55 @@ class DrawingEngine(
     private class ActiveStroke(
         val spec: BrushSpec,
         val color: Int,
+        val seed: Long,
         val brush: Brush,
         val context: StrokeContext,
         val resampler: Resampler,
         /** The starting region's mask when staying inside the lines, else `null`. */
         val mask: Bitmap?,
+        scratch: Bitmap,
     ) {
         val smoother = StrokeSmoother()
         val bounds = RectF()
+
+        /**
+         * Draws the scratch layer with the brush's opacity, blend mode and grain. Used for both the
+         * merge and the live preview, so the preview is exactly what the merge will produce.
+         */
         val mergePaint = Paint().also {
             it.alpha = (brush.opacity * 255).roundToInt()
             it.xfermode = PorterDuffXfermode(brush.blendMode)
+            val strokeShader = BitmapShader(scratch, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+            it.shader = brush.grain?.let { grain -> ComposeShader(strokeShader, grain, PorterDuff.Mode.DST_IN) }
+                ?: strokeShader
         }
+        val preview = StrokePreview(mergePaint, Rect(), isolated = brush.blendMode != PorterDuff.Mode.SRC_OVER)
     }
 
     /**
      * @param stayInsideLines keep the stroke inside the region under [p]; on the outline, the
      * nearest region.
+     * @param seed for the brush's randomness; the same seed and points render the same stroke.
      */
-    fun beginStroke(spec: BrushSpec, color: Int, p: StrokePoint, stayInsideLines: Boolean) {
+    fun beginStroke(
+        spec: BrushSpec,
+        color: Int,
+        p: StrokePoint,
+        stayInsideLines: Boolean,
+        seed: Long = Random.nextLong(),
+    ) {
         cancelStroke()
         val width = spec.baseWidth * document.size.scale
         val regionId = if (stayInsideLines) regions.regionNear(p.x, p.y) else 0
         val s = ActiveStroke(
             spec = spec,
             color = color,
+            seed = seed,
             brush = spec.createBrush(),
-            context = StrokeContext(document.stroke.canvas, color, width),
+            context = StrokeContext(document.stroke.canvas, color, width, Pcg32(seed), below = document.paint.bitmap),
             resampler = Resampler(spacing = (width / RESAMPLE_STEPS_PER_WIDTH).coerceAtLeast(1f)),
             mask = if (regionId != 0) masks.get(regionId) else null,
+            scratch = document.stroke.bitmap,
         )
         val start = s.smoother.filter(p)
         s.resampler.start(start)
@@ -106,6 +132,16 @@ class DrawingEngine(
         drawBatch(s, batch)
     }
 
+    /**
+     * Called every frame while a finger is down, on the same clock as the stroke points, so brushes
+     * like the spray keep building up where the finger rests.
+     */
+    fun tick(timeMs: Long) {
+        val s = stroke ?: return
+        val rect = s.brush.dwell(s.context, s.resampler.lastEmitted, timeMs)
+        if (!rect.isEmpty) include(s, rect)
+    }
+
     fun endStroke() {
         val s = stroke ?: return
         val batch = arrayListOf(s.resampler.lastEmitted)
@@ -118,10 +154,10 @@ class DrawingEngine(
 
         val paintBitmap = document.paint.bitmap
         val before = PixelPatch.capture(paintBitmap, bounds)
-        document.paint.canvas.drawBitmap(document.stroke.bitmap, bounds, bounds, s.mergePaint)
+        document.paint.canvas.drawRect(bounds, s.mergePaint)
         val after = PixelPatch.capture(paintBitmap, bounds)
         document.stroke.clear(bounds)
-        history.push(StrokeCommand(bounds, before, after, s.spec, s.color))
+        history.push(StrokeCommand(bounds, before, after, s.spec, s.color, s.seed))
         invalidate(bounds)
     }
 
@@ -171,7 +207,7 @@ class DrawingEngine(
 
     /** Draws the whole picture, including the stroke in progress, in document coordinates. */
     fun draw(canvas: Canvas) {
-        document.draw(canvas, stroke?.mergePaint)
+        document.draw(canvas, stroke?.preview)
     }
 
     /** The area changed since the last call, in document pixels; empty if nothing changed. */
@@ -194,6 +230,8 @@ class DrawingEngine(
             if (clip.intersect(documentRect)) document.stroke.canvas.drawBitmap(mask, clip, clip, clipPaint)
         }
         s.bounds.union(rect)
+        s.bounds.roundOut(s.preview.bounds)
+        if (!s.preview.bounds.intersect(documentRect)) s.preview.bounds.setEmpty()
         invalidate(changed)
     }
 

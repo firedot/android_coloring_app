@@ -39,10 +39,4 @@ class Pen : Brush {
         ctx.canvas.drawPath(path, paint)
         return bounds.outset(ctx.widthPx)
     }
-
-    private fun RectF.outset(width: Float): RectF {
-        val r = width / 2f + 1f
-        inset(-r, -r)
-        return this
-    }
 }

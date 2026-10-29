@@ -3,8 +3,18 @@
     <string name="undo">Undo</string>
     <string name="redo">Redo</string>
     <string name="tool_pen">Pen</string>
+    <string name="tool_pencil">Pencil</string>
+    <string name="tool_chalk">Chalk</string>
+    <string name="tool_spray">Spray</string>
+    <string name="tool_brush">Brush</string>
+    <string name="tool_paint_brush">Paint brush</string>
+    <string name="tool_magic_pen">Magic pen</string>
+    <string name="tool_eraser">Eraser</string>
     <string name="tool_fill">Fill</string>
     <string name="tool_pipette">Pick a colour from the picture</string>
     <string name="palette_hue">Colour</string>
     <string name="palette_shade">Light or dark</string>
+    <string name="size_small">Thin</string>
+    <string name="size_medium">Medium</string>
+    <string name="size_large">Thick</string>
 </resources>
