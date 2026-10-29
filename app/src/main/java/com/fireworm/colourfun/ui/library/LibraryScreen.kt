@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -33,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -128,6 +130,10 @@ internal fun LibraryContent(
     var selected by rememberSaveable { mutableIntStateOf(0) }
     val current = sections.getOrNull(selected) ?: sections.firstOrNull()
     val saved = uiState.saved.orEmpty()
+    val grid = rememberLazyGridState()
+    // The grid keeps its first visible item in place, so a newly saved artwork would land above
+    // the screen. Back from the canvas, show "my pictures" with the newest one first.
+    LaunchedEffect(saved.firstOrNull()?.id) { if (saved.isNotEmpty()) grid.scrollToItem(0) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Background) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = Spacing)) {
@@ -147,6 +153,7 @@ internal fun LibraryContent(
                 }
             }
             LazyVerticalGrid(
+                state = grid,
                 columns = GridCells.Adaptive(minSize = ThumbnailMinWidth),
                 contentPadding = PaddingValues(bottom = Spacing),
                 horizontalArrangement = Arrangement.spacedBy(Spacing),

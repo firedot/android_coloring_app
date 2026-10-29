@@ -5,7 +5,8 @@
     python tools/pictures/prepare.py --synthetic
 
 Steps: grayscale -> threshold -> despeckle -> fit into 2048 x 1536 with a white margin ->
-skeleton -> re-stroke at a uniform width -> potrace -> anti-aliased render -> validate the
+skeleton -> re-stroke at a uniform width -> potrace -> anti-aliased render -> fix near-gaps
+(join the line or shorten its end) and re-render -> validate the
 T-rules of docs/PICTURE_GUIDELINES.md -> write <section>/<name>.png and a 384 x 288
 <name>_thumb.webp into the app's assets. The app lists those folders; there is no index to
 maintain. A picture that fails a rule is moved to rejected/ with the reasons next to it.
@@ -40,6 +41,8 @@ REJECTED_DIR = TOOL_DIR / "rejected"
 WIDTH, HEIGHT = 2048, 1536
 THUMB_SIZE = (384, 288)
 FIT_MARGIN = 96                 # where the subject is placed; T5 only demands 64
+FIT_MARGIN_TIGHT = 76           # used instead when the subject would cover too little (T9)
+GAP_FIX_ROUNDS = 3              # render, probe and fix near-gaps at most this often
 EDGE_MARGIN = 64                # T5
 LINE_WIDTH = 14                 # T4 target
 LINE_WIDTH_RANGE = (12, 18)     # T4
@@ -261,20 +264,26 @@ def despeckle(ink: np.ndarray) -> np.ndarray:
     return ink | holes.mask_of(holes.area < SPECK_MAX)
 
 
-def fit_to_page(gray: np.ndarray, ink: np.ndarray) -> np.ndarray:
-    """Crops to the drawing, scales it into the page inside FIT_MARGIN and centres it; returns ink."""
+def fit_to_page(gray: np.ndarray, ink: np.ndarray, margin: int = FIT_MARGIN) -> np.ndarray:
+    """Crops to the drawing, scales it into the page inside `margin` and centres it; returns ink."""
     ys, xs = np.nonzero(ink)
     if xs.size == 0:
         raise Rejected("the image has no lines")
     left, right, top, bottom = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
     cleaned = np.where(ink, gray, 255).astype(np.uint8)[top:bottom, left:right]
-    scale = min((WIDTH - 2 * FIT_MARGIN) / (right - left), (HEIGHT - 2 * FIT_MARGIN) / (bottom - top))
+    scale = min((WIDTH - 2 * margin) / (right - left), (HEIGHT - 2 * margin) / (bottom - top))
     w, h = max(1, round((right - left) * scale)), max(1, round((bottom - top) * scale))
     resized = np.asarray(Image.fromarray(cleaned).resize((w, h), Image.LANCZOS))
     page = np.full((HEIGHT, WIDTH), 255, dtype=np.uint8)
     x0, y0 = (WIDTH - w) // 2, (HEIGHT - h) // 2
     page[y0:y0 + h, x0:x0 + w] = resized
     return page < 128
+
+
+def cover_of(mask: np.ndarray) -> float:
+    """T9: the share of the page covered by the bounding box of `mask`."""
+    ys, xs = np.nonzero(mask)
+    return (xs.max() + 1 - xs.min()) * (ys.max() + 1 - ys.min()) / (WIDTH * HEIGHT) if xs.size else 0.0
 
 
 def solid_areas(ink: np.ndarray, width: float = LINE_WIDTH_RANGE[1]) -> np.ndarray:
@@ -374,7 +383,7 @@ def validate(lum: np.ndarray) -> Report:
     if lum.shape != (HEIGHT, WIDTH):                                            # T2
         raise Rejected(f"T2 size {lum.shape[1]}x{lum.shape[0]}, expected {WIDTH}x{HEIGHT}")
     failures = []
-    line = (255 - lum.astype(np.int32)) > LINE_ALPHA_THRESHOLD
+    line = line_of(lum)
     ink = lum < 128
 
     grey = (lum > 8) & (lum < 247)                                              # T3
@@ -403,7 +412,8 @@ def validate(lum: np.ndarray) -> Report:
     if not LINE_WIDTH_RANGE[0] <= line_width <= LINE_WIDTH_RANGE[1]:
         failures.append(f"T4 line width {line_width:.1f} px (expected {LINE_WIDTH_RANGE[0]}-{LINE_WIDTH_RANGE[1]})")
 
-    failures += probe_gaps(line, centre)                                        # T6
+    failures += [f"T6 open line end at ({g.x}, {g.y}) is {g.distance:.0f} px from another line "    # T6
+                 f"and almost closes an area (min gap {GAP_MIN})" for g in near_gaps(line, centre)]
 
     regions = components(~line, eight=False)                                    # T7, T8
     count = regions.count
@@ -419,8 +429,7 @@ def validate(lum: np.ndarray) -> Report:
         l, t, r, b = bounds[i]
         failures.append(f"T7 region at ({l}, {t})-({r}, {b}) = {regions.area[i]} px² (min {REGION_MIN})")
 
-    ys, xs = np.nonzero(line)                                                   # T9
-    cover = (xs.max() + 1 - xs.min()) * (ys.max() + 1 - ys.min()) / (WIDTH * HEIGHT) if xs.size else 0.0
+    cover = cover_of(line)                                                      # T9
     if not SUBJECT_COVER[0] <= cover <= SUBJECT_COVER[1]:
         failures.append(f"T9 the drawing covers {cover:.0%} of the image (expected {SUBJECT_COVER[0]:.0%}-{SUBJECT_COVER[1]:.0%})")
 
@@ -429,16 +438,37 @@ def validate(lum: np.ndarray) -> Report:
     return Report(count, difficulty, float(line_width), float(cover), float(solid_fraction))
 
 
-def probe_gaps(line: np.ndarray, centre: np.ndarray) -> list[str]:
-    """T6: an open line end closer than GAP_MIN to another line must not almost close an area.
+def line_of(lum: np.ndarray) -> np.ndarray:
+    """Line pixels as the app sees them (RegionLabeler)."""
+    return (255 - lum.astype(np.int32)) > LINE_ALPHA_THRESHOLD
+
+
+def centre_of(lum: np.ndarray) -> np.ndarray:
+    """The centre lines of the strokes, without the solid areas."""
+    ink = lum < 128
+    return skeleton(ink & ~solid_areas(ink))
+
+
+@dataclass
+class Gap:
+    """An open line end (x, y) closer than GAP_MIN to another line, nearest at (tx, ty)."""
+
+    x: int
+    y: int
+    tx: int
+    ty: int
+    distance: float
+
+
+def near_gaps(line: np.ndarray, centre: np.ndarray) -> list[Gap]:
+    """T6: open line ends closer than GAP_MIN to another line that almost close an area.
 
     Around each end, the line it belongs to is the component containing it inside a small
     window. If another line in the window is closer than GAP_MIN, the gap is bridged with a line
     and the picture relabelled: if that adds a region, a child would see a closed area that the
-    fill leaks out of. Gaps that close nothing (loose whiskers side by side) are fine. Returns one
-    message per near-gap.
+    fill leaks out of. Gaps that close nothing (loose whiskers side by side) are fine.
     """
-    failures = []
+    gaps = []
     reach = GAP_MIN + LINE_WIDTH
     regions = None
     for x, y in endpoints(centre):
@@ -452,17 +482,77 @@ def probe_gaps(line: np.ndarray, centre: np.ndarray) -> list[str]:
             continue
         distances = np.sqrt((ox + l - x) ** 2 + (oy + t - y) ** 2)
         nearest = int(distances.argmin())
-        distance = distances[nearest] - LINE_WIDTH / 2
-        if distance >= GAP_MIN:
+        gap = Gap(x, y, int(ox[nearest] + l), int(oy[nearest] + t), max(0.0, distances[nearest] - LINE_WIDTH / 2))
+        if gap.distance >= GAP_MIN:
             continue
         if regions is None:
             regions = components(~line, eight=False).count
-        bridged = Image.fromarray(line.astype(np.uint8) * 255)
-        ImageDraw.Draw(bridged).line([(x, y), (int(ox[nearest] + l), int(oy[nearest] + t))], fill=255, width=LINE_WIDTH)
-        if components(np.asarray(bridged) < 128, eight=False).count > regions:
-            failures.append(f"T6 open line end at ({x}, {y}) is {max(0.0, distance):.0f} px from another line "
-                            f"and almost closes an area (min gap {GAP_MIN})")
-    return failures
+        if components(~bridge(line, gap, LINE_WIDTH), eight=False).count > regions:
+            gaps.append(gap)
+    return gaps
+
+
+def bridge(mask: np.ndarray, gap: Gap, width: int) -> np.ndarray:
+    """`mask` with a line from the gap's line end into the other line."""
+    dx, dy = gap.tx - gap.x, gap.ty - gap.y
+    n = max(1.0, math.hypot(dx, dy))
+    end = (gap.tx + dx / n * width / 2, gap.ty + dy / n * width / 2)
+    img = Image.fromarray(mask.astype(np.uint8) * 255)
+    ImageDraw.Draw(img).line([(gap.x, gap.y), end], fill=255, width=width)
+    return np.asarray(img) > 127
+
+
+def label_image(c: Components) -> np.ndarray:
+    out = np.full((c.height, c.width), -1, dtype=np.int64)
+    for y, start, end, label in zip(c.run_y, c.run_start, c.run_end, c.run_label):
+        out[y, start:end] = label
+    return out
+
+
+def fix_gaps(ink: np.ndarray, lum: np.ndarray, gaps: list[Gap]) -> tuple[np.ndarray, list[str]]:
+    """Fixes near-gaps in the ink; returns the new ink and one note per fix.
+
+    A gap is closed when every area next to the bridge is still big enough to colour (a toe line
+    that stops short of the paw); otherwise the line end is shortened until the gap is GAP_MIN
+    wide (a whisker ending next to the mouth).
+    """
+    line = line_of(lum)
+    width = max(LINE_WIDTH, round(line_width(ink)))
+    notes = []
+    for gap in gaps:
+        joined = bridge(line, gap, LINE_WIDTH)
+        labels = label_image(components(~joined, eight=False))
+        holes = components(~joined, eight=False)
+        touching = np.unique(labels[dilate(joined & ~line, 2) & ~joined])
+        touching = touching[touching >= 0]
+        if touching.size and holes.area[touching].min() >= REGION_MIN:
+            ink = bridge(ink, gap, width)
+            notes.append(f"joined the line end at ({gap.x}, {gap.y}) to the line {gap.distance:.0f} px away")
+        else:
+            ink = shorten(ink, gap)
+            notes.append(f"shortened the line end at ({gap.x}, {gap.y}), {gap.distance:.0f} px from another line")
+    return ink, notes
+
+
+def shorten(ink: np.ndarray, gap: Gap) -> np.ndarray:
+    """Erases the end of the gap's own line, enough to open the gap to GAP_MIN."""
+    cut = GAP_MIN - gap.distance + LINE_WIDTH
+    r = int(cut) + 1
+    l, t = max(0, gap.x - r), max(0, gap.y - r)
+    window = ink[t:gap.y + r + 1, l:gap.x + r + 1]
+    parts = components(window, eight=True)
+    own = parts.label_at(gap.x - l, gap.y - t)
+    if own < 0:
+        ys, xs = np.nonzero(window)
+        if xs.size == 0:
+            return ink
+        k = int(((xs - (gap.x - l)) ** 2 + (ys - (gap.y - t)) ** 2).argmin())
+        own = parts.label_at(int(xs[k]), int(ys[k]))
+    yy, xx = np.ogrid[:window.shape[0], :window.shape[1]]
+    near = (xx - (gap.x - l)) ** 2 + (yy - (gap.y - t)) ** 2 <= cut ** 2
+    out = ink.copy()
+    out[t:t + window.shape[0], l:l + window.shape[1]] &= ~(parts.mask_of(np.arange(parts.count) == own) & near)
+    return out
 
 
 # --- Output ---------------------------------------------------------------------------------
@@ -493,9 +583,22 @@ def prepare(source: Path, section: str, slug: str, provenance: str, replace_synt
 
     gray = load_gray(source)
     ink = despeckle(gray < 128)
-    ink = fit_to_page(gray, ink)
-    ink, highlights = fill_highlights(despeckle(ink))
+    fitted = fit_to_page(gray, ink)
+    if cover_of(fitted) < SUBJECT_COVER[0]:
+        fitted = fit_to_page(gray, ink, FIT_MARGIN_TIGHT)
+        print(f"    fix: fitted with a {FIT_MARGIN_TIGHT} px margin so the drawing covers {cover_of(fitted):.0%}")
+    ink, highlights = fill_highlights(despeckle(fitted))
+    if highlights:
+        print(f"    fix: filled {highlights} highlight spot(s) inside solid areas")
     lum = close_pinholes(render(restroke(ink)))
+    for _ in range(GAP_FIX_ROUNDS):
+        gaps = near_gaps(line_of(lum), centre_of(lum))
+        if not gaps:
+            break
+        ink, notes = fix_gaps(ink, lum, gaps)
+        for note in notes:
+            print(f"    fix: {note}")
+        lum = close_pinholes(render(restroke(ink)))
     report = validate(lum)
 
     out_dir = ASSETS_DIR / section
@@ -510,8 +613,6 @@ def prepare(source: Path, section: str, slug: str, provenance: str, replace_synt
     size_kb = png.stat().st_size / 1024
     print(f"ok  {picture_id}: {report.regions} regions ({report.difficulty}), line {report.line_width:.1f} px, "
           f"cover {report.cover:.0%}, solid {report.solid_fraction:.2%}, {size_kb:.0f} KB")
-    if highlights:
-        print(f"    filled {highlights} highlight spot(s) inside solid areas")
     if not 50 <= size_kb <= 200:                                                # T13
         print(f"    note: {size_kb:.0f} KB is outside the usual 50-200 KB; check it by eye")
     return report
