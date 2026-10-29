@@ -14,6 +14,8 @@
     <string name="settings_sound">Sounds</string>
     <string name="settings_haptics">Vibration</string>
     <string name="settings_stay_inside">Stay inside the lines</string>
+    <string name="licenses">Open-source licences</string>
+    <string name="licenses_intro">Colour Fun is built with these open-source libraries, all distributed under the Apache License, Version 2.0, reproduced below.</string>
     <string name="export">Save to photos</string>
     <string name="export_done">Saved to photos</string>
     <string name="export_failed">Could not save the picture</string>

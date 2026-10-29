@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -54,7 +55,7 @@ class SettingsViewModel @Inject constructor(private val repository: SettingsRepo
 
 /** Parent settings; only reachable through the parent gate. */
 @Composable
-fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
+fun SettingsScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val feedback = rememberFeedback()
 
@@ -73,6 +74,9 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                 SettingRow(R.string.settings_sound, current.soundEnabled) { feedback(Sound.Tap); viewModel.setSound(it) }
                 SettingRow(R.string.settings_haptics, current.hapticsEnabled) { feedback(Sound.Tap); viewModel.setHaptics(it) }
                 SettingRow(R.string.settings_stay_inside, current.stayInsideLines) { feedback(Sound.Tap); viewModel.setStayInsideLines(it) }
+                TextButton(onClick = { feedback(Sound.Tap); onOpenLicenses() }, modifier = Modifier.heightIn(min = 64.dp)) {
+                    Text(stringResource(R.string.licenses), style = MaterialTheme.typography.titleMedium)
+                }
             }
         }
     }
