@@ -50,6 +50,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fireworm.colourfun.R
 import com.fireworm.colourfun.debug.rememberFrameTimeLogger
 import com.fireworm.colourfun.drawing.DrawingEngine
+import com.fireworm.colourfun.ui.feedback.Sound
+import com.fireworm.colourfun.ui.feedback.rememberFeedback
 import com.fireworm.colourfun.ui.gate.ParentGateDialog
 import com.fireworm.colourfun.ui.palette.SpectrumPalette
 import com.fireworm.colourfun.ui.tools.SizePicker
@@ -64,7 +66,11 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val engine by viewModel.engine.collectAsStateWithLifecycle()
     val frameTimeLogger = rememberFrameTimeLogger()
-    val onEvent = viewModel::onEvent
+    val feedback = rememberFeedback()
+    val onEvent: (ColoringEvent) -> Unit = { event ->
+        soundFor(event, uiState.tool)?.let(feedback)
+        viewModel.onEvent(event)
+    }
 
     // Leaving the screen or the app: save without waiting for the autosave delay.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { onEvent(ColoringEvent.Save) }
@@ -103,8 +109,14 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
         )
     }
     val parentButtons = @Composable {
-        ParentButton(R.drawable.ic_download, R.string.export) { gate = GateTarget.Export }
-        ParentButton(R.drawable.ic_settings, R.string.settings) { gate = GateTarget.Settings }
+        ParentButton(R.drawable.ic_download, R.string.export) {
+            feedback(Sound.Tap)
+            gate = GateTarget.Export
+        }
+        ParentButton(R.drawable.ic_settings, R.string.settings) {
+            feedback(Sound.Tap)
+            gate = GateTarget.Settings
+        }
     }
 
     val canvas = @Composable { modifier: Modifier ->
@@ -163,7 +175,10 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
                         NewAnimalButton(Modifier.size(width = 120.dp, height = 64.dp), enabled = !uiState.loading) {
                             onEvent(ColoringEvent.NewAnimal)
                         }
-                        GalleryButton(Modifier.size(width = 120.dp, height = HistoryButtonSize), onOpenGallery)
+                        GalleryButton(Modifier.size(width = 120.dp, height = HistoryButtonSize)) {
+                            feedback(Sound.Tap)
+                            onOpenGallery()
+                        }
                         palette(true, Modifier.weight(1f))
                         Row(horizontalArrangement = Arrangement.spacedBy(EdgePadding)) {
                             HistoryButtons(uiState, onEvent)
@@ -202,8 +217,11 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
                             horizontalArrangement = Arrangement.spacedBy(EdgePadding),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            GalleryButton(Modifier.size(width = 88.dp, height = HistoryButtonSize), onOpenGallery)
-                            NewAnimalButton(Modifier.size(width = 120.dp, height = 64.dp), enabled = !uiState.loading) {
+                            GalleryButton(Modifier.size(width = 72.dp, height = HistoryButtonSize)) {
+                                feedback(Sound.Tap)
+                                onOpenGallery()
+                            }
+                            NewAnimalButton(Modifier.size(width = 112.dp, height = 64.dp), enabled = !uiState.loading) {
                                 onEvent(ColoringEvent.NewAnimal)
                             }
                             Spacer(Modifier.weight(1f))
@@ -216,6 +234,14 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
             }
         }
     }
+}
+
+/** The sound for a child's action, or `null` for events that are not taps. */
+private fun soundFor(event: ColoringEvent, tool: Tool): Sound? = when (event) {
+    is ColoringEvent.SelectTool, is ColoringEvent.SelectSize, ColoringEvent.Undo, ColoringEvent.Redo, ColoringEvent.NewAnimal -> Sound.Tap
+    is ColoringEvent.SelectColor -> Sound.Tick
+    is ColoringEvent.TapAt -> if (tool == Tool.Fill) Sound.Fill else Sound.Tap
+    ColoringEvent.ToggleStayInsideLines, ColoringEvent.Save, ColoringEvent.ExportToGallery -> null
 }
 
 /** What the parent gate is guarding. */

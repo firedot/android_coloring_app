@@ -10,6 +10,7 @@ import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
+import android.os.Trace
 import com.fireworm.colourfun.drawing.brushes.Brush
 import com.fireworm.colourfun.drawing.brushes.BrushSpec
 import com.fireworm.colourfun.drawing.brushes.StrokeContext
@@ -130,7 +131,7 @@ class DrawingEngine(
     }
 
     /** Adds input points in order, including the MotionEvent's historical points. */
-    fun extendStroke(points: List<StrokePoint>) {
+    fun extendStroke(points: List<StrokePoint>): Unit = traced(TRACE_EXTEND_STROKE) {
         val s = stroke ?: return
         val batch = arrayListOf(s.resampler.lastEmitted)
         for (p in points) s.resampler.add(s.smoother.filter(p), batch)
@@ -147,7 +148,7 @@ class DrawingEngine(
         if (!rect.isEmpty) include(s, rect)
     }
 
-    fun endStroke() {
+    fun endStroke(): Unit = traced(TRACE_END_STROKE) {
         val s = stroke ?: return
         val batch = arrayListOf(s.resampler.lastEmitted)
         s.resampler.finish(batch)
@@ -248,8 +249,22 @@ class DrawingEngine(
         _frameVersion.value++
     }
 
-    private companion object {
+    /** A system trace section, for the stroke benchmarks. */
+    private inline fun traced(name: String, block: () -> Unit) {
+        Trace.beginSection(name)
+        try {
+            block()
+        } finally {
+            Trace.endSection()
+        }
+    }
+
+    companion object {
+        /** Trace sections measured by the Macrobenchmark in :benchmark. */
+        const val TRACE_EXTEND_STROKE = "DrawingEngine.extendStroke"
+        const val TRACE_END_STROKE = "DrawingEngine.endStroke"
+
         /** Resampled points per stroke width; dense enough that joins stay smooth. */
-        const val RESAMPLE_STEPS_PER_WIDTH = 4f
+        private const val RESAMPLE_STEPS_PER_WIDTH = 4f
     }
 }

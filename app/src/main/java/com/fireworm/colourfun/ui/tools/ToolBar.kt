@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
@@ -72,15 +73,19 @@ fun ToolBar(
         ToolEntry(R.drawable.ic_eraser, R.string.tool_eraser, tool is Tool.Erase, Tool.Erase(size)) +
         ToolEntry(R.drawable.ic_fill, R.string.tool_fill, tool == Tool.Fill, Tool.Fill) +
         ToolEntry(R.drawable.ic_pipette, R.string.tool_pipette, tool == Tool.Pipette, Tool.Pipette)
-    val columns = if (vertical) ceil(entries.size / MAX_ROWS.toFloat()).toInt() else ROW_COLUMNS
-    Column(
-        modifier = modifier.selectableGroup(),
-        verticalArrangement = Arrangement.spacedBy(Spacing),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        entries.chunked(columns).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing)) {
-                row.forEach { entry -> ToolButton(entry.icon, entry.label, entry.selected) { onSelectTool(entry.tool) } }
+    BoxWithConstraints(modifier) {
+        // Across the top, as many full-size buttons per row as fit (narrow phones get more rows).
+        val fitting = ((maxWidth + Spacing) / (ToolButtonSize + Spacing)).toInt().coerceIn(1, ROW_COLUMNS)
+        val columns = if (vertical) ceil(entries.size / MAX_ROWS.toFloat()).toInt() else fitting
+        Column(
+            modifier = Modifier.selectableGroup(),
+            verticalArrangement = Arrangement.spacedBy(Spacing),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            entries.chunked(columns).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing)) {
+                    row.forEach { entry -> ToolButton(entry.icon, entry.label, entry.selected) { onSelectTool(entry.tool) } }
+                }
             }
         }
     }

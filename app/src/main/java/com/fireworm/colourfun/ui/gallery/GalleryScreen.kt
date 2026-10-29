@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fireworm.colourfun.R
+import com.fireworm.colourfun.ui.feedback.Sound
+import com.fireworm.colourfun.ui.feedback.rememberFeedback
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -50,11 +52,12 @@ private val ThumbnailShape = RoundedCornerShape(16.dp)
 @Composable
 fun GalleryScreen(onBack: () -> Unit, onOpen: (String) -> Unit, viewModel: GalleryViewModel = hiltViewModel()) {
     val items by viewModel.items.collectAsStateWithLifecycle()
+    val feedback = rememberFeedback()
 
     Surface(modifier = Modifier.fillMaxSize(), color = Background) {
         Column(Modifier.fillMaxSize().safeDrawingPadding()) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                FilledTonalIconButton(onClick = onBack, modifier = Modifier.size(64.dp)) {
+                FilledTonalIconButton(onClick = { feedback(Sound.Tap); onBack() }, modifier = Modifier.size(64.dp)) {
                     Icon(painterResource(R.drawable.ic_arrow_back), stringResource(R.string.back), Modifier.size(32.dp))
                 }
             }
@@ -73,7 +76,9 @@ fun GalleryScreen(onBack: () -> Unit, onOpen: (String) -> Unit, viewModel: Galle
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    items(list, key = { it.id }) { item -> Thumbnail(item, onClick = { onOpen(item.id) }) }
+                    items(list, key = { it.id }) { item ->
+                        Thumbnail(item, onClick = { feedback(Sound.Tap); onOpen(item.id) })
+                    }
                 }
             }
         }

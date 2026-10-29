@@ -32,7 +32,8 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.unit.dp
 import com.fireworm.colourfun.R
 
-private val StripThickness = 56.dp
+// The palette is a primary control: at least 64 dp to hit.
+private val StripThickness = 64.dp
 private val StripGap = 8.dp
 private val KnobOutline = Color(0xFF212121)
 private val KnobRing = Color.White

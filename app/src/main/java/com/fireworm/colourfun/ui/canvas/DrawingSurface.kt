@@ -1,5 +1,7 @@
 package com.fireworm.colourfun.ui.canvas
 
+import android.os.Build
+import android.view.MotionEvent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -28,8 +30,9 @@ import com.fireworm.colourfun.drawing.document.DocumentCoords
  * Shows the engine's document fit-centred and feeds touches straight into the engine.
  *
  * With a drawing tool or the eraser, one finger draws and a second finger cancels the stroke in
- * progress. With any other tool (fill, pipette), a touch reports its document position to [onTap]. Space outside the
- * document is left to the caller's background.
+ * progress, as does a touch the system flags as a palm (API 33+). With any other tool (fill,
+ * pipette), a touch reports its document position to [onTap]. Space outside the document is left
+ * to the caller's background.
  *
  * @param onTap called with the document position of a tap with a non-drawing tool.
  * @param onStrokeActiveChange called with `true` when a stroke starts and `false` when it ends.
@@ -87,6 +90,11 @@ fun DrawingSurface(
                         drawing = false
                     }
                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (drawing && !change.pressed && event.motionEvent?.wasCanceled() == true) {
+                        // The system decided this touch was a palm: drop the stroke rather than keep it.
+                        engine.cancelStroke()
+                        drawing = false
+                    }
                     if (drawing && change.positionChanged()) {
                         engine.extendStroke(change.strokePoints(coords))
                     }
@@ -117,6 +125,10 @@ fun DrawingSurface(
         onFrameDrawn(dirty.width() * dirty.height() / documentPixels)
     }
 }
+
+/** API 33+: the lifted pointer was accidental, e.g. a resting palm, and its gesture should be undone. */
+internal fun MotionEvent.wasCanceled(): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && (flags and MotionEvent.FLAG_CANCELED) != 0
 
 private fun PointerInputChange.toStrokePoint(coords: DocumentCoords) = StrokePoint(
     x = coords.toDocumentX(position.x),

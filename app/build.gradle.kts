@@ -56,6 +56,12 @@ android {
                 "proguard-rules.pro",
             )
         }
+        // Release code, signed with the debug key and profileable, for :benchmark.
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+        }
     }
 
     compileOptions {

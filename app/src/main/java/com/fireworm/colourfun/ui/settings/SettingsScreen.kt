@@ -34,6 +34,8 @@ import androidx.lifecycle.viewModelScope
 import com.fireworm.colourfun.R
 import com.fireworm.colourfun.data.settings.Settings
 import com.fireworm.colourfun.data.settings.SettingsRepository
+import com.fireworm.colourfun.ui.feedback.Sound
+import com.fireworm.colourfun.ui.feedback.rememberFeedback
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
@@ -54,10 +56,11 @@ class SettingsViewModel @Inject constructor(private val repository: SettingsRepo
 @Composable
 fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val feedback = rememberFeedback()
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFE8E8E8)) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().padding(8.dp)) {
-            FilledTonalIconButton(onClick = onBack, modifier = Modifier.size(64.dp)) {
+            FilledTonalIconButton(onClick = { feedback(Sound.Tap); onBack() }, modifier = Modifier.size(64.dp)) {
                 Icon(painterResource(R.drawable.ic_arrow_back), stringResource(R.string.back), Modifier.size(32.dp))
             }
             val current = settings ?: return@Column
@@ -67,9 +70,9 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineMedium)
-                SettingRow(R.string.settings_sound, current.soundEnabled, viewModel::setSound)
-                SettingRow(R.string.settings_haptics, current.hapticsEnabled, viewModel::setHaptics)
-                SettingRow(R.string.settings_stay_inside, current.stayInsideLines, viewModel::setStayInsideLines)
+                SettingRow(R.string.settings_sound, current.soundEnabled) { feedback(Sound.Tap); viewModel.setSound(it) }
+                SettingRow(R.string.settings_haptics, current.hapticsEnabled) { feedback(Sound.Tap); viewModel.setHaptics(it) }
+                SettingRow(R.string.settings_stay_inside, current.stayInsideLines) { feedback(Sound.Tap); viewModel.setStayInsideLines(it) }
             }
         }
     }
