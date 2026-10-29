@@ -21,7 +21,7 @@ import com.fireworm.colourfun.drawing.history.History
 import com.fireworm.colourfun.drawing.history.PixelPatch
 import com.fireworm.colourfun.drawing.history.StrokeCommand
 import com.fireworm.colourfun.drawing.pipette.ColorSampler
-import com.fireworm.colourfun.drawing.random.Pcg32
+import com.fireworm.colourfun.generator.random.Pcg32
 import com.fireworm.colourfun.drawing.regions.RegionMap
 import com.fireworm.colourfun.drawing.regions.RegionMaskCache
 import com.fireworm.colourfun.drawing.stroke.Resampler

@@ -1,4 +1,4 @@
-package com.fireworm.colourfun.drawing.random
+package com.fireworm.colourfun.generator.random
 
 import kotlin.math.abs
 import org.junit.Assert.assertEquals

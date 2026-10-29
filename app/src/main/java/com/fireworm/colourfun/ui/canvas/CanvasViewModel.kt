@@ -4,26 +4,26 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fireworm.colourfun.drawing.DrawingConfig
 import com.fireworm.colourfun.drawing.DrawingEngine
-import com.fireworm.colourfun.drawing.TestOutline
 import com.fireworm.colourfun.drawing.brushes.BrushSize
 import com.fireworm.colourfun.drawing.brushes.BrushSpec
 import com.fireworm.colourfun.drawing.brushes.Medium
 import com.fireworm.colourfun.drawing.document.Document
 import com.fireworm.colourfun.drawing.history.History
-import com.fireworm.colourfun.drawing.layers.OutlineRasterizer
-import com.fireworm.colourfun.drawing.regions.RegionMap
 import com.fireworm.colourfun.drawing.regions.RegionMaskCache
 import com.fireworm.colourfun.ui.palette.DefaultColor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlinx.coroutines.Dispatchers
+import com.fireworm.colourfun.domain.NewPictureUseCase
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 sealed interface Tool {
     data class Draw(val spec: BrushSpec) : Tool
@@ -70,15 +70,18 @@ sealed interface ColoringEvent {
     data class TapAt(val x: Float, val y: Float) : ColoringEvent
     data object Undo : ColoringEvent
     data object Redo : ColoringEvent
+    data object NewAnimal : ColoringEvent
 }
 
 /**
  * Owns the drawing engine for the current picture, so it survives configuration changes.
  * Raw stroke input bypasses this ViewModel and goes to the engine directly.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class CanvasViewModel @Inject constructor(
     private val config: DrawingConfig,
+    private val newPicture: NewPictureUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ColoringUiState())
@@ -89,23 +92,27 @@ class CanvasViewModel @Inject constructor(
     /** `null` while the picture is being prepared. */
     val engine: StateFlow<DrawingEngine?> = _engine.asStateFlow()
 
-    init {
-        viewModelScope.launch {
-            // Temporary: the hand-written test outline until the generator exists.
-            val size = config.documentSize
-            val lineArt = TestOutline.lineArt
-            val (outline, regions) = withContext(Dispatchers.Default) {
-                val outline = OutlineRasterizer.rasterize(lineArt, size)
-                outline to RegionMap.build(outline, outlineWidthPx = lineArt.strokeWidth * size.scale)
-            }
-            val history = History(budgetBytes = config.historyBudgetBytes, scope = viewModelScope)
-            val engine = DrawingEngine(Document(size, outline), RegionMaskCache(regions), history)
-            _engine.value = engine
-            _uiState.update { it.copy(loading = false) }
+    private var pictureJob: Job? = null
 
-            combine(engine.canUndo, engine.canRedo, ::Pair).collect { (canUndo, canRedo) ->
-                _uiState.update { it.copy(canUndo = canUndo, canRedo = canRedo) }
-            }
+    init {
+        newAnimal()
+        viewModelScope.launch {
+            _engine.filterNotNull()
+                .flatMapLatest { engine -> combine(engine.canUndo, engine.canRedo, ::Pair) }
+                .collect { (canUndo, canRedo) -> _uiState.update { it.copy(canUndo = canUndo, canRedo = canRedo) } }
+        }
+    }
+
+    /** Replaces the picture with a newly generated animal; the old one stays on screen until it is ready. */
+    private fun newAnimal() {
+        pictureJob?.cancel()
+        _uiState.update { it.copy(loading = true) }
+        pictureJob = viewModelScope.launch {
+            val picture = newPicture()
+            val history = History(budgetBytes = config.historyBudgetBytes, scope = viewModelScope)
+            _engine.value?.cancelStroke()
+            _engine.value = DrawingEngine(Document(config.documentSize, picture.outline), RegionMaskCache(picture.regions), history)
+            _uiState.update { it.copy(loading = false) }
         }
     }
 
@@ -124,6 +131,7 @@ class CanvasViewModel @Inject constructor(
             is ColoringEvent.TapAt -> tapAt(event.x, event.y)
             ColoringEvent.Undo -> _engine.value?.undo()
             ColoringEvent.Redo -> _engine.value?.redo()
+            ColoringEvent.NewAnimal -> newAnimal()
         }
     }
 

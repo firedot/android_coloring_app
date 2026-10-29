@@ -7,7 +7,7 @@ import com.fireworm.colourfun.generator.geometry.PathShape
 import com.fireworm.colourfun.generator.geometry.Vec2
 
 /**
- * Hand-written outline used until the animal generator exists: a body oval and two ears, with a
+ * Hand-written outline for tests: a body oval and two ears, with a
  * head circle drawn on top that overlaps the body and both ears.
  */
 object TestOutline {

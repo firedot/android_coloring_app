@@ -71,6 +71,11 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
+
+    sourceSets {
+        // The generator's part files ship as assets/parts/ in the APK.
+        getByName("main").assets.directories.add("../generator/src/main/assets")
+    }
 }
 
 dependencies {

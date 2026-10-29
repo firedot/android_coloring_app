@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.Shader
 import androidx.core.graphics.createBitmap
-import com.fireworm.colourfun.drawing.random.Pcg32
+import com.fireworm.colourfun.generator.random.Pcg32
 import kotlin.math.pow
 
 /**

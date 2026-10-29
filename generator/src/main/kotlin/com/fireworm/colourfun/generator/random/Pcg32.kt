@@ -1,4 +1,4 @@
-package com.fireworm.colourfun.drawing.random
+package com.fireworm.colourfun.generator.random
 
 import kotlin.math.PI
 import kotlin.math.cos
@@ -25,6 +25,18 @@ class Pcg32(seed: Long, stream: Long = DEFAULT_STREAM) {
         val xorShifted = (((old ushr 18) xor old) ushr 27).toInt()
         val rotation = (old ushr 59).toInt()
         return Integer.rotateRight(xorShifted, rotation)
+    }
+
+    /** Uniform in `[0, bound)`, without modulo bias. */
+    fun nextInt(bound: Int): Int {
+        require(bound > 0) { "bound must be positive" }
+        val range = bound.toUInt()
+        // Reject the few values that would make the low end more likely.
+        val threshold = (0u - range) % range
+        while (true) {
+            val r = nextInt().toUInt()
+            if (r >= threshold) return (r % range).toInt()
+        }
     }
 
     /** Uniform in `[0, 1)`. */

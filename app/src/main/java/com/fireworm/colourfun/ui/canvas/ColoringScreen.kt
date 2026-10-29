@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -59,6 +62,7 @@ fun ColoringScreen(viewModel: CanvasViewModel = hiltViewModel()) {
                     onFrameDrawn = { dirty -> frameTimeLogger?.onFrameDrawn(dirty) },
                 )
             }
+            if (uiState.loading) CircularProgressIndicator(Modifier.align(Alignment.Center).size(64.dp))
         }
     }
     val palette = @Composable { vertical: Boolean, modifier: Modifier ->
@@ -96,6 +100,9 @@ fun ColoringScreen(viewModel: CanvasViewModel = hiltViewModel()) {
                         verticalArrangement = Arrangement.spacedBy(EdgePadding),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
+                        NewAnimalButton(Modifier.size(width = 120.dp, height = 64.dp), enabled = !uiState.loading) {
+                            onEvent(ColoringEvent.NewAnimal)
+                        }
                         palette(true, Modifier.weight(1f))
                         Row(horizontalArrangement = Arrangement.spacedBy(EdgePadding)) {
                             HistoryButtons(uiState, onEvent)
@@ -126,6 +133,9 @@ fun ColoringScreen(viewModel: CanvasViewModel = hiltViewModel()) {
                         ) {
                             sizes()
                             Spacer(Modifier.weight(1f))
+                            NewAnimalButton(Modifier.size(width = 88.dp, height = 56.dp), enabled = !uiState.loading) {
+                                onEvent(ColoringEvent.NewAnimal)
+                            }
                             HistoryButtons(uiState, onEvent)
                         }
                     }
@@ -134,6 +144,14 @@ fun ColoringScreen(viewModel: CanvasViewModel = hiltViewModel()) {
                 }
             }
         }
+    }
+}
+
+/** The big button that starts a new picture with a freshly generated animal. */
+@Composable
+private fun NewAnimalButton(modifier: Modifier, enabled: Boolean, onClick: () -> Unit) {
+    FilledIconButton(onClick = onClick, enabled = enabled, modifier = modifier, shape = CircleShape) {
+        Icon(painterResource(R.drawable.ic_paw), contentDescription = stringResource(R.string.new_animal), modifier = Modifier.size(36.dp))
     }
 }
 
