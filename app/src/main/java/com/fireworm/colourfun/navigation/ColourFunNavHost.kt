@@ -1,4 +1,4 @@
-package com.fireworm.colourfun.ui.nav
+package com.fireworm.colourfun.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController

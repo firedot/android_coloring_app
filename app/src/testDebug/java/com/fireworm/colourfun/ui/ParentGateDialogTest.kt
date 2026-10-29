@@ -6,10 +6,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
-import com.fireworm.colourfun.ui.gate.ParentGateChallenge
-import com.fireworm.colourfun.ui.gate.ParentGateDialog
-import com.fireworm.colourfun.ui.gate.TAG_INPUT
-import com.fireworm.colourfun.ui.gate.TAG_WORDS
+import com.fireworm.colourfun.ui.parentgate.ParentGateChallenge
+import com.fireworm.colourfun.ui.parentgate.ParentGateDialog
+import com.fireworm.colourfun.ui.parentgate.TAG_INPUT
+import com.fireworm.colourfun.ui.parentgate.TAG_WORDS
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test

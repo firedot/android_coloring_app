@@ -1,4 +1,4 @@
-package com.fireworm.colourfun.ui.gate
+package com.fireworm.colourfun.ui.parentgate
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column

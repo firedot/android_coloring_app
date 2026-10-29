@@ -1,4 +1,4 @@
-package com.fireworm.colourfun.ui.gate
+package com.fireworm.colourfun.ui.parentgate
 
 import kotlin.random.Random
 import org.junit.Assert.assertEquals

@@ -34,8 +34,8 @@ import androidx.lifecycle.viewModelScope
 import com.fireworm.colourfun.R
 import com.fireworm.colourfun.data.settings.Settings
 import com.fireworm.colourfun.data.settings.SettingsRepository
-import com.fireworm.colourfun.ui.feedback.Sound
-import com.fireworm.colourfun.ui.feedback.rememberFeedback
+import com.fireworm.colourfun.feedback.Sound
+import com.fireworm.colourfun.feedback.rememberFeedback
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted

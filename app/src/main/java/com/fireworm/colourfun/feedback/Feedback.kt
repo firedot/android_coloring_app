@@ -1,4 +1,4 @@
-package com.fireworm.colourfun.ui.feedback
+package com.fireworm.colourfun.feedback
 
 import android.content.Context
 import android.media.AudioAttributes

@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import androidx.core.graphics.createBitmap
 import androidx.core.graphics.scale
 import com.fireworm.colourfun.drawing.document.DocumentSize
 import com.fireworm.colourfun.drawing.regions.RegionLabeler
@@ -59,7 +60,7 @@ class OutlineLayer(val bitmap: Bitmap, size: DocumentSize) {
             require(picture.width == size.pictureWidth && picture.height == size.pictureHeight) {
                 "Picture must be ${size.pictureWidth}×${size.pictureHeight}"
             }
-            val outline = Bitmap.createBitmap(size.width, size.height, Bitmap.Config.ALPHA_8)
+            val outline = createBitmap(size.width, size.height, Bitmap.Config.ALPHA_8)
             val stride = outline.rowBytes
             val alpha = ByteArray(stride * size.height)
             val row = IntArray(picture.width)

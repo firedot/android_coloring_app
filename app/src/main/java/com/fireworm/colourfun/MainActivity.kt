@@ -8,9 +8,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import com.fireworm.colourfun.ui.feedback.Feedback
-import com.fireworm.colourfun.ui.feedback.LocalFeedback
-import com.fireworm.colourfun.ui.nav.ColourFunNavHost
+import com.fireworm.colourfun.feedback.Feedback
+import com.fireworm.colourfun.feedback.LocalFeedback
+import com.fireworm.colourfun.navigation.ColourFunNavHost
 import com.fireworm.colourfun.ui.theme.ColourFunTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject

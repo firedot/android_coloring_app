@@ -47,6 +47,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fireworm.colourfun.R
 import com.fireworm.colourfun.debug.rememberFrameTimeLogger
 import com.fireworm.colourfun.drawing.DrawingEngine
+import com.fireworm.colourfun.feedback.Sound
+import com.fireworm.colourfun.feedback.rememberFeedback
 import com.fireworm.colourfun.ui.controls.ActionButtonSize
 import com.fireworm.colourfun.ui.controls.ControlButtonSize
 import com.fireworm.colourfun.ui.controls.FitButton
@@ -55,9 +57,7 @@ import com.fireworm.colourfun.ui.controls.PaletteControl
 import com.fireworm.colourfun.ui.controls.PaletteRingMinHeight
 import com.fireworm.colourfun.ui.controls.ToolsControl
 import com.fireworm.colourfun.ui.controls.UndoRedoButtons
-import com.fireworm.colourfun.ui.feedback.Sound
-import com.fireworm.colourfun.ui.feedback.rememberFeedback
-import com.fireworm.colourfun.ui.gate.ParentGateDialog
+import com.fireworm.colourfun.ui.parentgate.ParentGateDialog
 
 private val Letterbox = Color(0xFFE8E8E8)
 private val EdgePadding = 12.dp

@@ -57,9 +57,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fireworm.colourfun.R
 import com.fireworm.colourfun.data.library.Picture
 import com.fireworm.colourfun.data.library.Section
-import com.fireworm.colourfun.ui.feedback.Sound
-import com.fireworm.colourfun.ui.feedback.rememberFeedback
-import com.fireworm.colourfun.ui.gate.ParentGateDialog
+import com.fireworm.colourfun.feedback.Sound
+import com.fireworm.colourfun.feedback.rememberFeedback
+import com.fireworm.colourfun.ui.parentgate.ParentGateDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
