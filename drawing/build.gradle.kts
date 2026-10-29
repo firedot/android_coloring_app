@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.colourfun.drawing"
+    namespace = "com.fireworm.colourfun.drawing"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {

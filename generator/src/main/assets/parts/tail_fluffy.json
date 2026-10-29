@@ -1,0 +1,9 @@
+{
+  "id": "tail_fluffy",
+  "category": "tail",
+  "compatibleWith": ["quadruped"],
+  "paths": ["M-30,30 C60,50 150,10 170,-80 C180,-140 140,-180 100,-165 C120,-120 110,-60 60,-30 C20,-5 -20,-10 -40,-5 Z"],
+  "zOrder": 0,
+  "mirrorable": true,
+  "scaleRange": [0.8, 1.2]
+}

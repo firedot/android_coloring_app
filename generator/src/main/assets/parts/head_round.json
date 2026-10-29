@@ -1,0 +1,9 @@
+{
+  "id": "head_round",
+  "category": "head",
+  "compatibleWith": ["quadruped"],
+  "paths": ["M-150,0 A150,150 0 1,0 150,0 A150,150 0 1,0 -150,0 Z"],
+  "anchors": { "ear_left": [-90, -100], "eye_left": [-55, -25], "nose": [0, 45] },
+  "zOrder": 30,
+  "scaleRange": [0.7, 1.4]
+}

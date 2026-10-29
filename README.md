@@ -133,7 +133,7 @@ UI (Compose) ──▶ ViewModel ──▶ Use cases ──▶ Drawing engine / 
 ```
 colour-fun/
 ├── app/
-│   └── src/main/java/com/example/colourfun/
+│   └── src/main/java/com/fireworm/colourfun/
 │       ├── ui/
 │       │   ├── canvas/          # Drawing screen, canvas composable
 │       │   ├── palette/         # Color palette & pipette UI

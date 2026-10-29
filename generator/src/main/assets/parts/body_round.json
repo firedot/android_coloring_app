@@ -1,0 +1,9 @@
+{
+  "id": "body_round",
+  "category": "body",
+  "compatibleWith": ["quadruped"],
+  "paths": ["M-260,0 A260,200 0 1,0 260,0 A260,200 0 1,0 -260,0 Z"],
+  "anchors": { "head": [0, -185], "leg_left": [-115, 115], "tail": [215, 70] },
+  "zOrder": 10,
+  "scaleRange": [0.9, 1.1]
+}

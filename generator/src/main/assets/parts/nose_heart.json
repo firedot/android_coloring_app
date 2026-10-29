@@ -1,0 +1,8 @@
+{
+  "id": "nose_heart",
+  "category": "nose",
+  "compatibleWith": ["quadruped"],
+  "paths": ["M-34,-15 C-34,-32 34,-32 34,-15 C34,5 10,25 0,25 C-10,25 -34,5 -34,-15 Z"],
+  "zOrder": 40,
+  "scaleRange": [0.85, 1.15]
+}

@@ -42,3 +42,7 @@ captures/
 .idea/
 *.iml
 .DS_Store
+
+# Signing keys
+*.jks
+*.keystore

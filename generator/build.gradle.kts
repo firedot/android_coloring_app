@@ -22,3 +22,9 @@ dependencies {
 
     testImplementation(libs.junit)
 }
+
+tasks.test {
+    // ./gradlew :generator:test -PrecordGoldens=true rewrites the golden JSON files.
+    systemProperty("recordGoldens", providers.gradleProperty("recordGoldens").getOrElse("false"))
+    maxHeapSize = "1g"
+}

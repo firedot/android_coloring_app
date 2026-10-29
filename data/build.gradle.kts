@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.colourfun.data"
+    namespace = "com.fireworm.colourfun.data"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
@@ -46,5 +46,7 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
 
     androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.kotlinx.coroutines.android)
     androidTestImplementation(libs.androidx.room.testing)
 }

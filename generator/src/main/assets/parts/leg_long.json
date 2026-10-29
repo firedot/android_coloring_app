@@ -1,0 +1,8 @@
+{
+  "id": "leg_long",
+  "category": "leg",
+  "compatibleWith": ["quadruped"],
+  "paths": ["M-40,-50 C-40,-90 40,-90 40,-50 L40,95 C40,140 -40,140 -40,95 Z"],
+  "zOrder": 20,
+  "scaleRange": [0.85, 1.15]
+}
