@@ -2,7 +2,7 @@ package com.example.colourfun.di
 
 import android.app.ActivityManager
 import android.content.Context
-import com.example.colourfun.drawing.document.DocumentSize
+import com.example.colourfun.drawing.DrawingConfig
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -16,8 +16,8 @@ object DrawingModule {
 
     @Provides
     @Singleton
-    fun provideDocumentSize(@ApplicationContext context: Context): DocumentSize {
+    fun provideDrawingConfig(@ApplicationContext context: Context): DrawingConfig {
         val activityManager = context.getSystemService(ActivityManager::class.java)
-        return DocumentSize.forDevice(activityManager.isLowRamDevice)
+        return DrawingConfig.forDevice(activityManager.isLowRamDevice)
     }
 }

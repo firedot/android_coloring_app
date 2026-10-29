@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Colour Fun</string>
+    <string name="undo">Undo</string>
+    <string name="redo">Redo</string>
 </resources>
