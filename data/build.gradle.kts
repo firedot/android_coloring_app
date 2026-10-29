@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.colourfun.data"
+    namespace = "com.fireworm.colourfun.data"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {

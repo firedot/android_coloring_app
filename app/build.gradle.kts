@@ -20,7 +20,7 @@ fun signingValue(key: String): String? =
 val releaseKeystore = signingValue("COLOURFUN_KEYSTORE_FILE")
 
 android {
-    namespace = "com.example.colourfun"
+    namespace = "com.fireworm.colourfun"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {

@@ -51,7 +51,7 @@ Rules:
 ### Package layout
 
 ```
-generator/src/main/kotlin/com/example/colourfun/generator/
+generator/src/main/kotlin/com/fireworm/colourfun/generator/
 ├── random/        Pcg32 (own PRNG — kotlin.random is not guaranteed stable across versions)
 ├── geometry/      Vec2, Transform, PathShape (move/line/cubic/close), PathDataParser
 ├── parts/         Part, PartCategory, Anchor, PartLibrary (loads JSON)
@@ -60,7 +60,7 @@ generator/src/main/kotlin/com/example/colourfun/generator/
 ├── LineArt.kt     Output model
 └── AnimalGenerator.kt
 
-drawing/src/main/kotlin/com/example/colourfun/drawing/
+drawing/src/main/kotlin/com/fireworm/colourfun/drawing/
 ├── document/      Document (size, layers), DocumentCoords
 ├── layers/        PaperLayer, PaintLayer, OutlineLayer, OutlineRasterizer
 ├── regions/       RegionMap (connected-component labeling), RegionMaskCache
@@ -71,14 +71,14 @@ drawing/src/main/kotlin/com/example/colourfun/drawing/
 ├── pipette/       ColorSampler
 └── DrawingEngine.kt
 
-data/src/main/kotlin/com/example/colourfun/data/
+data/src/main/kotlin/com/fireworm/colourfun/data/
 ├── db/            ColourFunDatabase, ArtworkEntity, ArtworkDao
 ├── files/         ArtworkFileStore (paint PNG, outline JSON, thumbnail)
 ├── export/        GalleryExporter (MediaStore)
 ├── settings/      SettingsRepository (DataStore)
 └── ArtworkRepository.kt
 
-app/src/main/java/com/example/colourfun/
+app/src/main/java/com/fireworm/colourfun/
 ├── ui/canvas/     ColoringScreen, DrawingSurface (Compose ↔ engine adapter), CanvasViewModel
 ├── ui/palette/    PaletteBar, PipetteButton
 ├── ui/tools/      ToolBar, SizePicker
