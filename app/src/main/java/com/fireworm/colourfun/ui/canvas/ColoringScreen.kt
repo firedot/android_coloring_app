@@ -51,6 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fireworm.colourfun.R
 import com.fireworm.colourfun.debug.rememberFrameTimeLogger
 import com.fireworm.colourfun.drawing.DrawingEngine
+import com.fireworm.colourfun.ui.controls.FitButton
 import com.fireworm.colourfun.ui.feedback.Sound
 import com.fireworm.colourfun.ui.feedback.rememberFeedback
 import com.fireworm.colourfun.ui.gate.ParentGateDialog
@@ -159,12 +160,16 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
             engine?.let { engine: DrawingEngine ->
                 DrawingSurface(
                     engine = engine,
+                    viewport = viewModel.viewport,
                     tool = uiState.tool,
                     color = uiState.color,
                     stayInsideLines = uiState.stayInsideLines,
                     onTap = { x, y -> onEvent(ColoringEvent.TapAt(x, y)) },
+                    onViewSize = viewModel::onViewSize,
+                    onTransform = { factor, focus, pan -> viewModel.transformViewport(factor, focus.x, focus.y, pan.x, pan.y) },
                     modifier = Modifier.fillMaxSize().semantics { contentDescription = canvasDescription },
-                    onStrokeActiveChange = { active -> frameTimeLogger?.setActive(active) },
+                    // Measures frame time (texture upload) while drawing and while zooming.
+                    onActiveChange = { active -> frameTimeLogger?.setActive(active) },
                     onFrameDrawn = { dirty -> frameTimeLogger?.onFrameDrawn(dirty) },
                 )
             }
@@ -228,6 +233,11 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
                     }
                 }
             }
+            FitButton(
+                visible = uiState.zoomedIn,
+                onClick = { onEvent(ColoringEvent.FitToScreen) },
+                modifier = Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(EdgePadding),
+            )
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).safeDrawingPadding())
         }
     }
@@ -235,7 +245,7 @@ fun ColoringScreen(onOpenGallery: () -> Unit, onOpenSettings: () -> Unit, viewMo
 
 /** The sound for a child's action, or `null` for events that are not taps. */
 private fun soundFor(event: ColoringEvent, tool: Tool): Sound? = when (event) {
-    is ColoringEvent.SelectTool, is ColoringEvent.SelectSize, ColoringEvent.Undo, ColoringEvent.Redo -> Sound.Tap
+    is ColoringEvent.SelectTool, is ColoringEvent.SelectSize, ColoringEvent.Undo, ColoringEvent.Redo, ColoringEvent.FitToScreen -> Sound.Tap
     is ColoringEvent.SelectColor -> Sound.Tick
     is ColoringEvent.TapAt -> if (tool == Tool.Fill) Sound.Fill else Sound.Tap
     ColoringEvent.ToggleStayInsideLines, ColoringEvent.Save, ColoringEvent.ExportToGallery -> null

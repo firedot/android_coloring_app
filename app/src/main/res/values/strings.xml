@@ -3,6 +3,7 @@
     <string name="undo">Undo</string>
     <string name="redo">Redo</string>
     <string name="canvas">Picture to colour</string>
+    <string name="fit">Show the whole picture</string>
     <string name="gallery">My pictures</string>
     <string name="gallery_empty">No pictures yet</string>
     <string name="open_picture">Colour this picture</string>

@@ -1,5 +1,9 @@
 package com.fireworm.colourfun.ui.canvas
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -18,12 +22,14 @@ import com.fireworm.colourfun.drawing.brushes.Medium
 import com.fireworm.colourfun.drawing.document.Document
 import com.fireworm.colourfun.drawing.history.History
 import com.fireworm.colourfun.drawing.regions.RegionMaskCache
+import com.fireworm.colourfun.drawing.viewport.Viewport
 import com.fireworm.colourfun.ui.palette.DefaultColor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -95,6 +101,8 @@ data class ColoringUiState(
     val stayInsideLines: Boolean = true,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
+    /** Shows the Fit button. */
+    val zoomedIn: Boolean = false,
 )
 
 sealed interface ColoringEvent {
@@ -108,6 +116,9 @@ sealed interface ColoringEvent {
     data class TapAt(val x: Float, val y: Float) : ColoringEvent
     data object Undo : ColoringEvent
     data object Redo : ColoringEvent
+
+    /** Animates back to the whole picture. */
+    data object FitToScreen : ColoringEvent
 
     /** The screen is going away (onStop): save now rather than after the autosave delay. */
     data object Save : ColoringEvent
@@ -150,6 +161,19 @@ class CanvasViewModel @Inject constructor(
     /** `null` while the picture is being prepared. */
     val engine: StateFlow<DrawingEngine?> = _engine.asStateFlow()
 
+    private val _viewport = MutableStateFlow<Viewport?>(null)
+
+    /**
+     * How the document is shown; `null` until both the document and the view size are known. View
+     * state only: every artwork opens at fit, and zoom is never undone or saved.
+     */
+    val viewport: StateFlow<Viewport?> = _viewport.asStateFlow()
+
+    /** The canvas size in pixels, once laid out. */
+    private var viewSize: Pair<Float, Float>? = null
+
+    private var fitJob: Job? = null
+
     private val _effects = Channel<ColoringEffect>(Channel.BUFFERED)
     val effects: Flow<ColoringEffect> = _effects.receiveAsFlow()
 
@@ -189,6 +213,11 @@ class CanvasViewModel @Inject constructor(
                 .collect { (canUndo, canRedo) -> _uiState.update { it.copy(canUndo = canUndo, canRedo = canRedo) } }
         }
         viewModelScope.launch {
+            _viewport.map { it?.isZoomedIn == true }.distinctUntilChanged().collect { zoomedIn ->
+                _uiState.update { it.copy(zoomedIn = zoomedIn) }
+            }
+        }
+        viewModelScope.launch {
             _engine.filterNotNull()
                 .flatMapLatest { it.edits }
                 .debounce(AUTOSAVE_DELAY_MS)
@@ -210,6 +239,7 @@ class CanvasViewModel @Inject constructor(
             is ColoringEvent.TapAt -> tapAt(event.x, event.y)
             ColoringEvent.Undo -> _engine.value?.undo()
             ColoringEvent.Redo -> _engine.value?.redo()
+            ColoringEvent.FitToScreen -> fitToScreen()
             ColoringEvent.Save -> save()
             ColoringEvent.ExportToGallery -> export()
         }
@@ -222,7 +252,44 @@ class CanvasViewModel @Inject constructor(
         savedEdits = 0
         val history = History(budgetBytes = config.historyBudgetBytes, scope = viewModelScope)
         _engine.value = DrawingEngine(document, RegionMaskCache(prepared.regions), history)
+        resetViewport()
         _uiState.update { it.copy(loading = false) }
+    }
+
+    /** The canvas was laid out at a new size: show the whole document. */
+    fun onViewSize(width: Float, height: Float) {
+        if (width <= 0f || height <= 0f || viewSize == width to height) return
+        viewSize = width to height
+        resetViewport()
+    }
+
+    /**
+     * One frame of a two-finger gesture, straight from the canvas (not through [onEvent], like all
+     * raw touch): zoom by [factor] around ([focusX], [focusY]), then pan, in screen pixels.
+     */
+    fun transformViewport(factor: Float, focusX: Float, focusY: Float, panX: Float, panY: Float) {
+        fitJob?.cancel()
+        _viewport.update { it?.transform(factor, focusX, focusY, panX, panY) }
+    }
+
+    private fun resetViewport() {
+        fitJob?.cancel()
+        val document = _engine.value?.document ?: return
+        val (width, height) = viewSize ?: return
+        _viewport.value = Viewport.of(document.size.width, document.size.height, width, height)
+    }
+
+    /** Springs back to fit; on the UI dispatcher, whose frame clock drives the animation. */
+    private fun fitToScreen() {
+        val start = _viewport.value ?: return
+        val target = start.fitted()
+        fitJob?.cancel()
+        fitJob = viewModelScope.launch(AndroidUiDispatcher.Main) {
+            animate(0f, 1f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { t, _ ->
+                _viewport.value = start.lerp(target, t)
+            }
+            _viewport.value = target
+        }
     }
 
     /** Saves the current artwork if it changed since the last save. */
