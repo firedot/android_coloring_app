@@ -16,32 +16,37 @@ import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import com.example.colourfun.drawing.DrawingEngine
-import com.example.colourfun.drawing.brushes.BrushSpec
 import com.example.colourfun.drawing.brushes.StrokePoint
 import com.example.colourfun.drawing.document.DocumentCoords
 
 /**
  * Shows the engine's document fit-centred and feeds touches straight into the engine.
  *
- * One finger draws; a second finger cancels the stroke in progress. Space outside the document is
- * left to the caller's background.
+ * With a drawing tool, one finger draws and a second finger cancels the stroke in progress. With the
+ * fill tool, a touch reports its document position to [onFill]. Space outside the document is left
+ * to the caller's background.
  *
+ * @param onFill called with the document position of a fill tap.
  * @param onStrokeActiveChange called with `true` when a stroke starts and `false` when it ends.
  * @param onFrameDrawn called after each draw with the fraction of the document that changed.
  */
 @Composable
 fun DrawingSurface(
     engine: DrawingEngine,
-    brush: BrushSpec,
+    tool: Tool,
     color: Int,
+    stayInsideLines: Boolean,
+    onFill: (x: Float, y: Float) -> Unit,
     modifier: Modifier = Modifier,
     onStrokeActiveChange: (Boolean) -> Unit = {},
     onFrameDrawn: (dirtyFraction: Float) -> Unit = {},
 ) {
     // Read only inside the draw lambda, so a stroke update redraws without recomposing.
     val frameVersion = engine.frameVersion.collectAsState()
-    val currentBrush by rememberUpdatedState(brush)
+    val currentTool by rememberUpdatedState(tool)
     val currentColor by rememberUpdatedState(color)
+    val currentStayInsideLines by rememberUpdatedState(stayInsideLines)
+    val currentOnFill by rememberUpdatedState(onFill)
     val currentOnStrokeActiveChange by rememberUpdatedState(onStrokeActiveChange)
     val documentSize = engine.document.size
     val documentPixels = documentSize.width.toFloat() * documentSize.height
@@ -49,9 +54,17 @@ fun DrawingSurface(
     val input = Modifier.pointerInput(engine) {
         awaitEachGesture {
             val down = awaitFirstDown()
-            val coords = DocumentCoords.fit(size.width.toFloat(), size.height.toFloat(), documentSize)
-            engine.beginStroke(currentBrush, currentColor, down.toStrokePoint(coords))
             down.consume()
+            val coords = DocumentCoords.fit(size.width.toFloat(), size.height.toFloat(), documentSize)
+            val drawTool = when (val selected = currentTool) {
+                is Tool.Draw -> selected
+                Tool.Fill -> {
+                    // Fill on touch-down for instant feedback; the rest of the gesture is ignored.
+                    currentOnFill(coords.toDocumentX(down.position.x), coords.toDocumentY(down.position.y))
+                    return@awaitEachGesture
+                }
+            }
+            engine.beginStroke(drawTool.spec, currentColor, down.toStrokePoint(coords), currentStayInsideLines)
             currentOnStrokeActiveChange(true)
 
             var drawing = true

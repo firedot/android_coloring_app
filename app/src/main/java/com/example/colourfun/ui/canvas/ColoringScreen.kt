@@ -41,8 +41,10 @@ fun ColoringScreen(viewModel: CanvasViewModel = hiltViewModel()) {
                 engine?.let {
                     DrawingSurface(
                         engine = it,
-                        brush = uiState.brush,
+                        tool = uiState.tool,
                         color = uiState.color,
+                        stayInsideLines = uiState.stayInsideLines,
+                        onFill = { x, y -> viewModel.onEvent(ColoringEvent.FillAt(x, y)) },
                         modifier = Modifier.fillMaxSize(),
                         onStrokeActiveChange = { active -> frameTimeLogger?.setActive(active) },
                         onFrameDrawn = { dirty -> frameTimeLogger?.onFrameDrawn(dirty) },
@@ -54,10 +56,18 @@ fun ColoringScreen(viewModel: CanvasViewModel = hiltViewModel()) {
                 modifier = Modifier.fillMaxHeight().padding(8.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
             ) {
-                HistoryButton(R.drawable.ic_undo, R.string.undo, uiState.canUndo) {
+                // Shows the current tool; tapping switches between pen and fill.
+                val filling = uiState.tool == Tool.Fill
+                ControlButton(
+                    icon = if (filling) R.drawable.ic_fill else R.drawable.ic_pen,
+                    label = if (filling) R.string.tool_fill else R.string.tool_pen,
+                ) {
+                    viewModel.onEvent(ColoringEvent.SelectTool(if (filling) Tool.Pen else Tool.Fill))
+                }
+                ControlButton(R.drawable.ic_undo, R.string.undo, enabled = uiState.canUndo) {
                     viewModel.onEvent(ColoringEvent.Undo)
                 }
-                HistoryButton(R.drawable.ic_redo, R.string.redo, uiState.canRedo) {
+                ControlButton(R.drawable.ic_redo, R.string.redo, enabled = uiState.canRedo) {
                     viewModel.onEvent(ColoringEvent.Redo)
                 }
             }
@@ -66,10 +76,10 @@ fun ColoringScreen(viewModel: CanvasViewModel = hiltViewModel()) {
 }
 
 @Composable
-private fun HistoryButton(
+private fun ControlButton(
     @DrawableRes icon: Int,
     @StringRes label: Int,
-    enabled: Boolean,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     FilledTonalIconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(64.dp)) {

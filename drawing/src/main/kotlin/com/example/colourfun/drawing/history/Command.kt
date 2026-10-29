@@ -19,3 +19,11 @@ class StrokeCommand(
     val spec: BrushSpec,
     val color: Int,
 ) : Command
+
+class FillCommand(
+    override val bounds: Rect,
+    override val before: PixelPatch,
+    override val after: PixelPatch,
+    val region: Int,
+    val color: Int,
+) : Command

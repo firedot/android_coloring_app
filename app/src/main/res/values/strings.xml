@@ -2,4 +2,6 @@
     <string name="app_name">Colour Fun</string>
     <string name="undo">Undo</string>
     <string name="redo">Redo</string>
+    <string name="tool_pen">Pen</string>
+    <string name="tool_fill">Fill</string>
 </resources>

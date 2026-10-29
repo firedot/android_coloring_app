@@ -1,7 +1,9 @@
 package com.example.colourfun.drawing
 
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
@@ -10,9 +12,12 @@ import com.example.colourfun.drawing.brushes.BrushSpec
 import com.example.colourfun.drawing.brushes.StrokeContext
 import com.example.colourfun.drawing.brushes.StrokePoint
 import com.example.colourfun.drawing.document.Document
+import com.example.colourfun.drawing.history.FillCommand
 import com.example.colourfun.drawing.history.History
 import com.example.colourfun.drawing.history.PixelPatch
 import com.example.colourfun.drawing.history.StrokeCommand
+import com.example.colourfun.drawing.regions.RegionMap
+import com.example.colourfun.drawing.regions.RegionMaskCache
 import com.example.colourfun.drawing.stroke.Resampler
 import com.example.colourfun.drawing.stroke.StrokeSmoother
 import kotlin.math.roundToInt
@@ -21,14 +26,18 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Draws strokes into a [Document] and records them in [history].
+ * Draws strokes and fills into a [Document] and records them in [history].
  *
  * Main thread only. Touch input comes straight from the drawing surface, not through a ViewModel.
  * Stroke pipeline: 1-euro smoothing → fixed-spacing resampling → brush draws into the stroke scratch
- * layer → on [endStroke] the scratch is merged into the paint layer and recorded as a [StrokeCommand].
+ * layer → (stay inside the lines) clipped to the starting region's mask → on [endStroke] the scratch
+ * is merged into the paint layer and recorded as a [StrokeCommand].
  */
-class DrawingEngine(val document: Document, private val history: History) {
-
+class DrawingEngine(
+    val document: Document,
+    private val masks: RegionMaskCache,
+    private val history: History,
+) {
     private val _frameVersion = MutableStateFlow(0L)
 
     /** Changes whenever the picture changes; the surface redraws when it does. */
@@ -37,9 +46,15 @@ class DrawingEngine(val document: Document, private val history: History) {
     val canUndo: StateFlow<Boolean> get() = history.canUndo
     val canRedo: StateFlow<Boolean> get() = history.canRedo
 
+    val regions: RegionMap get() = masks.regions
+
     private val documentRect = Rect(0, 0, document.size.width, document.size.height)
     private val dirty = Rect()
     private var stroke: ActiveStroke? = null
+
+    private val clipPaint = Paint().also { it.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN) }
+    private val eraseInMaskPaint = Paint().also { it.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT) }
+    private val fillPaint = Paint()
 
     private class ActiveStroke(
         val spec: BrushSpec,
@@ -47,6 +62,8 @@ class DrawingEngine(val document: Document, private val history: History) {
         val brush: Brush,
         val context: StrokeContext,
         val resampler: Resampler,
+        /** The starting region's mask when staying inside the lines, else `null`. */
+        val mask: Bitmap?,
     ) {
         val smoother = StrokeSmoother()
         val bounds = RectF()
@@ -56,15 +73,21 @@ class DrawingEngine(val document: Document, private val history: History) {
         }
     }
 
-    fun beginStroke(spec: BrushSpec, color: Int, p: StrokePoint) {
+    /**
+     * @param stayInsideLines keep the stroke inside the region under [p]; on the outline, the
+     * nearest region.
+     */
+    fun beginStroke(spec: BrushSpec, color: Int, p: StrokePoint, stayInsideLines: Boolean) {
         cancelStroke()
         val width = spec.baseWidth * document.size.scale
+        val regionId = if (stayInsideLines) regions.regionNear(p.x, p.y) else 0
         val s = ActiveStroke(
             spec = spec,
             color = color,
             brush = spec.createBrush(),
             context = StrokeContext(document.stroke.canvas, color, width),
             resampler = Resampler(spacing = (width / RESAMPLE_STEPS_PER_WIDTH).coerceAtLeast(1f)),
+            mask = if (regionId != 0) masks.get(regionId) else null,
         )
         val start = s.smoother.filter(p)
         s.resampler.start(start)
@@ -108,6 +131,28 @@ class DrawingEngine(val document: Document, private val history: History) {
         invalidate(bounds)
     }
 
+    /**
+     * Paints every pixel of the dilated region at ([x], [y]) with [color], replacing what is there.
+     * On the outline it fills the nearest region. The mask is built off the main thread; it is
+     * applied to the paint as it is when the mask is ready, so nothing drawn meanwhile is lost.
+     */
+    suspend fun fill(x: Float, y: Float, color: Int) {
+        val regionId = regions.regionNear(x, y)
+        if (regionId == 0) return
+        val mask = masks.load(regionId)
+
+        val bounds = Rect(regions.region(regionId).maskBounds)
+        val paintBitmap = document.paint.bitmap
+        val before = PixelPatch.capture(paintBitmap, bounds)
+        // Clear, then paint: an exact replace through a 0/255 mask, for any colour.
+        document.paint.canvas.drawBitmap(mask, bounds, bounds, eraseInMaskPaint)
+        fillPaint.color = color
+        document.paint.canvas.drawBitmap(mask, bounds, bounds, fillPaint)
+        val after = PixelPatch.capture(paintBitmap, bounds)
+        history.push(FillCommand(bounds, before, after, regionId, color))
+        invalidate(bounds)
+    }
+
     fun undo() {
         cancelStroke()
         history.undo(document.paint.bitmap)?.let(::invalidate)
@@ -136,8 +181,14 @@ class DrawingEngine(val document: Document, private val history: History) {
     }
 
     private fun include(s: ActiveStroke, rect: RectF) {
+        val changed = Rect().also { rect.roundOut(it) }
+        val mask = s.mask
+        if (mask != null) {
+            val clip = Rect(changed)
+            if (clip.intersect(documentRect)) document.stroke.canvas.drawBitmap(mask, clip, clip, clipPaint)
+        }
         s.bounds.union(rect)
-        invalidate(Rect().also { rect.roundOut(it) })
+        invalidate(changed)
     }
 
     private fun invalidate(rect: Rect) {

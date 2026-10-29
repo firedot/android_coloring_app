@@ -10,6 +10,8 @@ import com.example.colourfun.drawing.brushes.StrokePoint
 import com.example.colourfun.drawing.document.Document
 import com.example.colourfun.drawing.document.DocumentSize
 import com.example.colourfun.drawing.history.History
+import com.example.colourfun.drawing.regions.RegionMap
+import com.example.colourfun.drawing.regions.RegionMaskCache
 import kotlin.random.Random
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -109,7 +111,7 @@ class DrawingEngineHistoryTest {
                 }
                 else -> {
                     // A cancelled stroke (second finger) must leave no trace.
-                    engine.beginStroke(randomSpec(random), colors.random(random), randomPoint(random))
+                    engine.beginStroke(randomSpec(random), colors.random(random), randomPoint(random), stayInsideLines = random.nextBoolean())
                     engine.extendStroke(List(5) { randomPoint(random) })
                     engine.cancelStroke()
                 }
@@ -125,11 +127,12 @@ class DrawingEngineHistoryTest {
 
     private fun engine(history: History): DrawingEngine {
         val outline = createBitmap(size.width, size.height, Bitmap.Config.ALPHA_8)
-        return DrawingEngine(Document(size, outline), history)
+        val regions = RegionMap.build(outline, outlineWidthPx = 4f)
+        return DrawingEngine(Document(size, outline), RegionMaskCache(regions, workDispatcher = dispatcher), history)
     }
 
     private fun drawRandomStroke(engine: DrawingEngine, random: Random) {
-        engine.beginStroke(randomSpec(random), colors.random(random), randomPoint(random))
+        engine.beginStroke(randomSpec(random), colors.random(random), randomPoint(random), stayInsideLines = random.nextBoolean())
         val points = List(random.nextInt(1, 30)) { randomPoint(random) }
         // Deliver in batches, as touch events with historical points arrive.
         points.chunked(random.nextInt(1, 6)).forEach(engine::extendStroke)
